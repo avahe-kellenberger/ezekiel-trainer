@@ -29,6 +29,84 @@ echo '{"name":"osrs-sdk","version":"0.1.8","workspaces":["packages/osrs-sdk-asse
 echo '{"name":"osrs-sdk-assets","version":"0.1.8"}' >"$1/packages/osrs-sdk-assets/package.json"
 echo '{"name":"osrs-sdk-react","version":"0.1.0"}' >"$1/packages/osrs-sdk-react/package.json"
 for dir in "$1" "$1/packages/osrs-sdk-assets" "$1/packages/osrs-sdk-react"; do echo 'module.exports = {};' >"$dir/index.js"; done
+mkdir -p "$1/src/sdk/rendering"
+cat >"$1/src/sdk/rendering/CacheRenderModel.ts" <<'SOURCE'
+if (!this.mesh || this.meshGeneration !== this.modelGeneration || this.lastPose < 0) return;
+SOURCE
+cat >"$1/src/sdk/Player.ts" <<'SOURCE'
+import { Pathing } from "./Pathing";
+export class Player {
+  getPerceivedRotation(tickPercent) {
+  }
+  moveTo(x: number, y: number, pace: MovePace = "run-setting") {
+  }
+}
+SOURCE
+cat >"$1/src/sdk/Unit.ts" <<'SOURCE'
+export class Unit {
+  private renderFromLocation: Location = { x: 0, y: 0 };
+  private renderPositionTimestamp = 0;
+}
+SOURCE
+cat >"$1/src/sdk/ClickController.ts" <<'SOURCE'
+inputController.queueAction(() => this.playerWalkClick(location.x, location.y, pace));
+InputController.controller.queueAction(() => this.playerWalkClick(x, y));
+Trainer.player.moveTo(Math.floor(x), Math.floor(y), pace);
+SOURCE
+mkdir -p "$1/packages/osrs-sdk-assets/src"
+cat >"$1/packages/osrs-sdk-assets/src/index.d.ts" <<'SOURCE'
+export type SceneTouchups = {
+SOURCE
+mkdir -p "$1/packages/osrs-sdk-assets/src"
+cat >"$1/packages/osrs-sdk-assets/src/scene-touchups.mts" <<'SOURCE'
+      if (!["replacements", "rectangleReplacements", "removals"].includes(kind)
+SOURCE
+mkdir -p "$1/packages/osrs-sdk-assets/src"
+cat >"$1/packages/osrs-sdk-assets/src/adapter.mts" <<'SOURCE'
+          assetId,
+          x: location.position.localX,
+asset.id.endsWith("-terrain") ? "terrain" : asset.id.endsWith("-transparent") ? "transparent" : "opaque",
+SOURCE
+mkdir -p "$1/packages/osrs-sdk-assets/src"
+cat >"$1/packages/osrs-sdk-assets/src/compile-scene.mts" <<'SOURCE'
+width?: number; height?: number };
+    opaque = new Map<string, Output>(),
+chunk(terrain ? terrainOutput : transparentFace ? transparent : opaque, chunkX, chunkY)
+[...terrainOutput.values(), ...opaque.values(), ...transparent.values()]
+    ...(opaque.size ? [{ id: `${prefix}-opaque`, payload: payload(opaque) }] : []),
+SOURCE
+mkdir -p "$1/src/cache-render-format"
+cat >"$1/src/cache-render-format/manifest.ts" <<'SOURCE'
+  height?: number;
+};
+export type CacheRenderScene =
+compiledAssets: { terrain?: string; opaque?: string; transparent?: string };
+          (scene.compiledAssets.opaque === undefined
+SOURCE
+mkdir -p "$1/src/sdk/rendering"
+cat >"$1/src/sdk/rendering/CacheRenderSceneModel.ts" <<'SOURCE'
+      for (const [kind, assetId] of Object.entries(recipe.compiledAssets)) {
+          this.root.add(new THREE.Mesh(geometry, material));
+      }
+    })();
+    return this.ready;
+SOURCE
+EOF
+cat >"$WORK/bin/sdk-build" <<'EOF'
+#!/usr/bin/env bash
+mkdir -p "$1/lib/src/sdk" "$1/_bundles"
+if grep -q 'queueMovement(' "$1/src/sdk/Player.ts"; then
+  echo 'queueMovement(x: number, y: number, pace?: MovePace): void;' >"$1/lib/src/sdk/Player.d.ts"
+  echo 'queueMovement(x, y, pace) {}' >"$1/_bundles/main.js"
+else
+  echo 'moveTo(x: number, y: number, pace?: MovePace): void;' >"$1/lib/src/sdk/Player.d.ts"
+  echo 'moveTo(x, y, pace) {}' >"$1/_bundles/main.js"
+fi
+if grep -q 'setRotationImmediate(rotation' "$1/src/sdk/Player.ts"; then
+  echo 'setRotationImmediate(rotation: number): void;' >>"$1/lib/src/sdk/Player.d.ts"
+  echo 'this._angle = rotation;' >>"$1/_bundles/main.js"
+fi
+cat "$1/src/sdk/rendering/CacheRenderModel.ts" "$1/src/sdk/rendering/CacheRenderSceneModel.ts" >>"$1/_bundles/main.js"
 EOF
 cat >"$WORK/bin/git" <<'EOF'
 #!/usr/bin/env bash
@@ -47,19 +125,20 @@ cat >"$WORK/bin/npm" <<'EOF'
 #!/usr/bin/env bash
 case "$PWD:$1" in
   "$APP:ci") echo ci >>"$T/registry-installs"; rm -rf node_modules ;;
-  */osrs-sdk:ci | */osrs-sdk:run) ;;
+  */osrs-sdk:ci) ;;
+  */osrs-sdk:run) sdk-build "$PWD" ;;
   *) exec "$REAL_NPM" "$@" ;;
 esac
 EOF
-chmod +x "$WORK/bin/sdk-source" "$WORK/bin/git" "$WORK/bin/npm"
+chmod +x "$WORK/bin/sdk-source" "$WORK/bin/sdk-build" "$WORK/bin/git" "$WORK/bin/npm"
 export PATH="$WORK/bin:$PATH"
 
 setup() {
   T="$(mktemp -d "$WORK/case.XXXXXX")"
   APP="$T/app"
-  export T APP HOME="$T/home" VERIFY_DIR="$T/verify"
-  mkdir -p "$APP/scripts" "$HOME"
-  cp "$SCRIPTS/install-beta-sdk.sh" "$SCRIPTS/verify.sh" "$APP/scripts/"
+  export T APP VERIFY_DIR="$T/verify"
+  mkdir -p "$APP/scripts"
+  cp "$SCRIPTS/install-beta-sdk.sh" "$SCRIPTS/patch-sdk-input.mjs" "$SCRIPTS/verify.sh" "$APP/scripts/"
   echo '{"name":"app","version":"0.0.0","private":true,"scripts":{"build":"node build.js"}}' >"$APP/package.json"
   echo 'for (const name of ["osrs-sdk", "osrs-sdk-assets", "osrs-sdk-react"]) require(name);' >"$APP/build.js"
   : >"$T/fetches"
@@ -67,9 +146,11 @@ setup() {
 }
 
 packs() {
-  local dir="$1" commit="$2" src
+  local dir="$1" commit="$2" patched="${3:-yes}" src
   src="$(mktemp -d "$T/src.XXXXXX")"
   sdk-source "$src"
+  if [[ "$patched" == yes ]]; then node "$APP/scripts/patch-sdk-input.mjs" "$src" >/dev/null || return 1; fi
+  sdk-build "$src"
   mkdir -p "$dir"
   (
     cd "$src" || exit 1
@@ -174,15 +255,112 @@ packs_at_the_pin_are_used() {
   grep -qxF "install-beta-sdk: installed osrs-sdk commit $PIN matches the pin" "$T/out.txt" || { cat "$T/out.txt"; fail "the install did not name the SDK commit it installed"; }
 }
 
+packs_without_the_input_patch_are_rebuilt() {
+  setup
+  packs "$T/prebuilt" "$PIN" no || return 1
+  ready
+  OSRS_SDK_PACKS="$T/prebuilt" install_sdk
+  expect_built_at_the_pin
+  node "$APP/scripts/patch-sdk-input.mjs" "$APP/node_modules/osrs-sdk" --check || fail "rebuilt SDK lacks the input hook"
+}
+
+installed_sdk_without_the_input_patch_is_replaced() {
+  setup
+  installed_from_packs "$PIN" || return 1
+  node -e 'const fs=require("node:fs"),p=process.argv[1],v=JSON.parse(fs.readFileSync(p));delete v.zekeInputPatch;fs.writeFileSync(p,JSON.stringify(v));' "$APP/node_modules/osrs-sdk/package.json"
+  ready
+  run_verify
+  expect_reinstalled_at_the_pin
+}
+
+installed_sdk_with_missing_built_api_is_replaced() {
+  setup
+  installed_from_packs "$PIN" || return 1
+  echo 'module.exports = {};' >"$APP/node_modules/osrs-sdk/_bundles/main.js"
+  ready
+  run_verify
+  expect_reinstalled_at_the_pin
+}
+
+installed_sdk_with_missing_declared_api_is_replaced() {
+  setup
+  installed_from_packs "$PIN" || return 1
+  echo 'export {};' >"$APP/node_modules/osrs-sdk/lib/src/sdk/Player.d.ts"
+  ready
+  run_verify
+  expect_reinstalled_at_the_pin
+}
+
+installed_sdk_without_ground_animation_fix_is_replaced() {
+  setup
+  installed_from_packs "$PIN" || return 1
+  echo 'queueMovement(x, y, pace) {}' >"$APP/node_modules/osrs-sdk/_bundles/main.js"
+  ready
+  run_verify
+  expect_reinstalled_at_the_pin
+}
+
+installed_sdk_without_player_rotation_fix_is_replaced() {
+  setup
+  installed_from_packs "$PIN" || return 1
+  sed -i '/this._angle = rotation;/d' "$APP/node_modules/osrs-sdk/_bundles/main.js"
+  ready
+  run_verify
+  expect_reinstalled_at_the_pin
+}
+
+installed_sdk_without_ground_depth_pass_is_replaced() {
+  setup
+  installed_from_packs "$PIN" || return 1
+  sed -i '/renderer.clearDepth()/d' "$APP/node_modules/osrs-sdk/_bundles/main.js"
+  ready
+  run_verify
+  expect_reinstalled_at_the_pin
+}
+
+patch_three_upgrades_without_reapplying_rotation() {
+  setup
+  local src="$T/upgrade"
+  sdk-source "$src"
+  node "$APP/scripts/patch-sdk-input.mjs" "$src" >/dev/null || return 1
+  # Recreate revision 3 by undoing only the newly introduced source changes.
+  node --input-type=module - "$src" "$APP/scripts/patch-sdk-input.mjs" <<'NODE'
+import fs from 'node:fs';
+import path from 'node:path';
+const [root, patchFile] = process.argv.slice(2);
+const patch = fs.readFileSync(patchFile, 'utf8').split('if ((packageJson.zekeInputPatch ?? 0) < 4) {')[1].split('  packageJson.zekeInputPatch')[0];
+const changes = [...patch.matchAll(/replace\(("(?:[^"\\]|\\.)*"), ("(?:[^"\\]|\\.)*"), ("(?:[^"\\]|\\.)*")\);/g)];
+if (changes.length < 10) throw new Error('Missing ground patch fixture changes');
+for (const match of changes.reverse()) {
+  const [file,before,after] = match.slice(1).map(JSON.parse);
+  const target=path.join(root,file); fs.writeFileSync(target,fs.readFileSync(target,'utf8').replace(after,before));
+}
+const file=path.join(root,'package.json'), pkg=JSON.parse(fs.readFileSync(file));pkg.zekeInputPatch=3;fs.writeFileSync(file,JSON.stringify(pkg));
+NODE
+  node "$APP/scripts/patch-sdk-input.mjs" "$src" >/dev/null || return 1
+  sdk-build "$src"
+  node "$APP/scripts/patch-sdk-input.mjs" "$src" --check || return 1
+  [[ "$(grep -c 'override setRotationImmediate' "$src/src/sdk/Player.ts")" == 1 ]] || fail "rotation patch reapplied"
+  ready
+}
+
 failed=0
 for t in \
+  installed_sdk_without_ground_depth_pass_is_replaced \
+  patch_three_upgrades_without_reapplying_rotation \
   install_at_the_pin_is_reused \
   unrecorded_install_is_replaced \
   install_from_another_commit_is_replaced \
   unreadable_installed_manifest_is_replaced \
   unrecorded_packs_are_refused \
   packs_from_another_commit_are_refused \
-  packs_at_the_pin_are_used; do
+  packs_at_the_pin_are_used \
+  packs_without_the_input_patch_are_rebuilt \
+  installed_sdk_without_the_input_patch_is_replaced \
+  installed_sdk_with_missing_built_api_is_replaced \
+  installed_sdk_with_missing_declared_api_is_replaced \
+  installed_sdk_without_player_rotation_fix_is_replaced \
+  installed_sdk_without_ground_animation_fix_is_replaced; do
   if ("$t") >"$WORK/$t.log" 2>&1; then
     echo "PASS $t"
   else

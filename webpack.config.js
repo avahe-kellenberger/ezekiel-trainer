@@ -38,6 +38,7 @@ module.exports = {
     new CopyPlugin({
       patterns: [
         { from: "public/osrs-assets", to: "osrs-assets", noErrorOnMissing: true },
+        { from: "public/fonts", to: "fonts" },
         { from: "_headers", to: "", context: "src/" },
         { from: "telemetry.json", to: "", context: "src/" },
         { from: "*.png", to: "", context: "node_modules/osrs-sdk/_bundles/", noErrorOnMissing: true },

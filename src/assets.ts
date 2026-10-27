@@ -1,3 +1,4 @@
+import { ZEKE_PRESENTATION } from "./content/zeke/assets";
 import type { CacheAssets } from "osrs-sdk/asset-manifest";
 import type { SpriteFrame } from "./content/ocellus/js/OcellusTimings";
 import { OCELLUS_P4 } from "./content/ocellus/js/OcellusTimings";
@@ -50,11 +51,11 @@ export const ARCHIVE_OCELLUS_ASSETS = {
   sounds: P4_ASSETS.sounds,
 } as const satisfies CacheAssets;
 
-export const ITEM_ICON_IDS = [...Object.values(gear.items).map((item) => item.itemId.value), ...Object.values(gear.sdkIcons).map((itemId) => itemId.value)];
+export const ITEM_ICON_IDS = [...Object.values(gear.items).map((item) => item.itemId.value), ...Object.values(gear.sdkIcons).map((itemId) => itemId.value), ZEKE_PRESENTATION.harmonisedNightmareStaff];
 
 export const ARCHIVE_OCELLUS_OVERRIDES = {
   items: Object.fromEntries(Object.entries(gear.sdkCacheIds).map(([key, id]) => [key, { id: id.value }])),
 } as const satisfies CacheAssets;
 
 /** The asset tool extracts no sprites, so scripts/extract-sprites.mjs writes these beside its output. */
-export const ARCHIVE_OCELLUS_SPRITES: readonly SpriteFrame[] = [...Object.values(presentation.overheadIcons).map((icon) => icon.value), P1_LOOK.overheadIcon.value];
+export const ARCHIVE_OCELLUS_SPRITES: readonly SpriteFrame[] = [ZEKE_PRESENTATION.windSurge.sprite, ...Object.values(presentation.overheadIcons).map((icon) => icon.value), P1_LOOK.overheadIcon.value];

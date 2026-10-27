@@ -5,6 +5,7 @@ export type Unbranded = number & { readonly [brand]?: never };
 /** A tick of the encounter's own clock, counted from the tick its schedule calls 0. */
 export type Tick = Brand<"Tick">;
 export type TickSpan = Brand<"TickSpan">;
+export type ClientCycles = Brand<"ClientCycles">;
 export type WorldTick = Brand<"WorldTick">;
 export type Cycle = Brand<"Cycle">;
 export type Seed = Brand<"Seed">;
@@ -17,6 +18,7 @@ export type Tile = Readonly<{ x: TileX; y: TileY }>;
 export const isCount = (n: number): boolean => Number.isInteger(n) && n >= 0;
 const isTick = (n: Unbranded): n is Unbranded & Tick => isCount(n);
 const isTickSpan = (n: Unbranded): n is Unbranded & TickSpan => isCount(n);
+const isClientCycles = (n: Unbranded): n is Unbranded & ClientCycles => isCount(n);
 const isWorldTick = (n: Unbranded): n is Unbranded & WorldTick => isCount(n);
 const isCycle = (n: Unbranded): n is Unbranded & Cycle => isCount(n) && n >= 1;
 const isSeed = (n: Unbranded): n is Unbranded & Seed => isCount(n) && n <= 0xffffffff;
@@ -31,6 +33,10 @@ export function tick(n: Unbranded): Tick {
 }
 export function span(n: Unbranded): TickSpan {
   if (!isTickSpan(n)) throw new RangeError(`not a tick span: ${n}`);
+  return n;
+}
+export function clientCycles(n: Unbranded): ClientCycles {
+  if (!isClientCycles(n)) throw new RangeError(`not a client cycle count: ${n}`);
   return n;
 }
 export function worldTick(n: Unbranded): WorldTick {

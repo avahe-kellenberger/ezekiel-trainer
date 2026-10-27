@@ -3,9 +3,30 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, user-scalable=no" />
-    <title>Archive Ocellus Trainer</title>
+    <title>Ezekiel Trainer</title>
     <link rel="icon" href="data:," />
+    <link rel="preload" href="fonts/RuneScape-UF.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="fonts/RuneScape-Plain-11.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="fonts/RuneScape-Plain-12.woff2" as="font" type="font/woff2" crossorigin />
     <style>
+      @font-face {
+        font-family: "OSRS";
+        src: url("fonts/RuneScape-UF.woff2") format("woff2");
+        font-display: swap;
+      }
+
+      @font-face {
+        font-family: "Stats_11";
+        src: url("fonts/RuneScape-Plain-11.woff2") format("woff2");
+        font-display: swap;
+      }
+
+      @font-face {
+        font-family: "Stats_12";
+        src: url("fonts/RuneScape-Plain-12.woff2") format("woff2");
+        font-display: swap;
+      }
+
       body {
         margin: 0;
         overflow: hidden;
@@ -38,6 +59,21 @@
         gap: 0 8px;
         font-size: 11px;
         text-shadow: 1px 1px 0 black;
+      }
+
+      #visual_ticks {
+        display: flex;
+        background: rgba(128, 128, 128, 0.5);
+        pointer-events: none;
+      }
+
+      #visual_ticks span {
+        width: 30px;
+        height: 30px;
+      }
+
+      #visual_ticks span[data-active="true"] {
+        background: cyan;
       }
 
       #maker_credit {
@@ -201,6 +237,31 @@
         text-shadow: 1px 1px 0 black;
         pointer-events: none;
       }
+
+      #maker_credit a {
+        color: #ff981f;
+        pointer-events: auto;
+      }
+
+      #zeke_music { display: grid; gap: 4px; }
+      #music_status { color: #fff; font-size: 11px; }
+      #settings_menu input[type="number"] { width: 4ch; }
+      #settings_menu hr { width: 100%; border: 0; border-top: 1px solid #756b58; }
+      #zeke_help {
+        position: absolute;
+        bottom: calc(100% + 4px);
+        left: 0;
+        width: min(42ch, calc(100vw - 32px));
+        padding: 12px;
+        background: #3e3529;
+        border: 2px solid #000;
+        outline: 1px solid #5a5245;
+        max-height: 65vh;
+        overflow-y: auto;
+      }
+      #zeke_help[hidden] { display: none; }
+      #zeke_help h2 { color: #ff981f; font-size: 15px; margin: 0; }
+      #zeke_help p { line-height: 1.4; }
     </style>
   </head>
   <body>

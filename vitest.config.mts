@@ -3,7 +3,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   server: { fs: { strict: false } },
   test: {
-    dir: "src",
+    include: ["src/**/*.{test,spec}.{ts,tsx,js,mjs}", "test/zeke/**/*.test.ts"],
     environment: "jsdom",
     environmentOptions: { jsdom: { url: "http://localhost/" } },
     globals: true,

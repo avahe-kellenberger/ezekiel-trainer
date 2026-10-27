@@ -3,6 +3,7 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
+export AGENT_BROWSER_ARGS="${AGENT_BROWSER_ARGS:+${AGENT_BROWSER_ARGS},}--mute-audio"
 
 set -a
 OSRS_CACHE_DIR="${OSRS_CACHE_DIR:-$HOME/osrs-sims/cache/openrs2}"
@@ -425,7 +426,10 @@ parity_fights() {
 stage_parity() {
   local base cache head="$VERIFY_DIR/parity/head.json" src="$VERIFY_DIR/parity/base-src"
   base="$(git rev-parse --verify "${VERIFY_PARITY_BASE:-$(git merge-base origin/main HEAD)}^{commit}")" || { log "parity: no base revision; set VERIFY_PARITY_BASE"; return 1; }
-  cache="$ROOT/.verify/parity/${base}-$(cat test/parity/* | shasum -a 256 | cut -c1-12).json"
+  local parity_hash
+  parity_hash="$(cat test/parity/* | node -e 'const hash = require("node:crypto").createHash("sha256"); process.stdin.on("data", bytes => hash.update(bytes)); process.stdin.on("end", () => process.stdout.write(hash.digest("hex").slice(0, 12)));')" || return 1
+  [[ "$parity_hash" =~ ^[a-f0-9]{12}$ ]] || { log "invalid parity fixture hash"; return 1; }
+  cache="$ROOT/.verify/parity/${base}-${parity_hash}.json"
   mkdir -p "$VERIFY_DIR/parity" "$ROOT/.verify/parity"
   if [[ -f "$cache" ]]; then
     log "parity: base ${base} recorded in ${cache}"
@@ -509,8 +513,8 @@ doctor() {
   if ! page="$(curl -sf "http://127.0.0.1:$(state port)/")"; then
     log "doctor: page request failed"
     problems=1
-  elif ! grep -q "<title>Archive Ocellus Trainer</title>" <<<"$page"; then
-    log "doctor: page title is not Archive Ocellus Trainer"
+  elif ! grep -q "<title>Ezekiel Trainer</title>" <<<"$page"; then
+    log "doctor: page title is not Ezekiel Trainer"
     problems=1
   fi
   if ! manifest="$(curl -sf "http://127.0.0.1:$(state port)/osrs-assets/manifest.json")"; then
@@ -550,7 +554,7 @@ stop() {
 }
 
 ab() {
-  agent-browser --session "$BROWSER_SESSION" "$@"
+  agent-browser --config "$ROOT/scripts/browser-muted.json" --session "$BROWSER_SESSION" "$@"
 }
 
 probe() {
