@@ -37,6 +37,7 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 
 ## Features
 
+- [Ezekiel loadout and dodge energy](./zeke-loadout.md) covers the default trainer's inventory rows, Inquisitor armour, scythe crush, both special weapons, and immediate restoration after safe dodges.
 - [Arena render](./arena-render.md) covers page load, the floor, the player model and the HUD.
 - [Settings menu and run results](./settings-and-results.md) covers the Settings menu, the kill and death result panel and the `bosshp` link option.
 - [Click to walk](./click-to-walk.md) covers walking the player to a clicked floor tile, walking one tile a tick on a Control-click, and stopping at the platform's edge.

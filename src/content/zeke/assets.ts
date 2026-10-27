@@ -1,4 +1,5 @@
 import type { CacheAssets } from "osrs-sdk/asset-manifest";
+import { ZEKE_GEAR } from "./ZekeGearData";
 
 const FENCE_POSES = {
     drop1: 14731, idle1: 14732,
@@ -145,16 +146,26 @@ export const ZEKE_ASSETS = {
     ...Object.fromEntries([62645, 62646, 62647, 62648].map((id) => [`ezekielSword${id}`, { id, animations: { idle: look.swordSpin } }])),
     ...Object.fromEntries(Object.entries(look.finaleSwordLooks).map(([name, sword]) => [`ezekielFinale${name}`, { id: sword.model, animations: { drop: sword.drop, idle: sword.idle, telegraph: sword.telegraph, despawn: sword.despawn } }])),
   },
-  playerAnimations: { windSurge: { id: look.windSurge.cast }, ezekielRoll: { id: look.roll }, ezekielStrafe: { id: look.strafe } },
+  playerAnimations: {
+    windSurge: { id: look.windSurge.cast }, ezekielRoll: { id: look.roll }, ezekielStrafe: { id: look.strafe },
+    ...Object.fromEntries([ZEKE_GEAR.elderMaul, ZEKE_GEAR.crimsonKisten].flatMap((weapon) => [weapon.attack, weapon.idle, weapon.walk, weapon.run, weapon.special]).map((id) => [`zekeWeapon${id}`, { id }])),
+    zekeKistenStab: { id: ZEKE_GEAR.crimsonKisten.stab },
+  },
   spotAnims: {
     windSurgeCast: { id: look.windSurge.casting },
     windSurgeTravel: { id: look.windSurge.travel },
     windSurgeImpact: { id: look.windSurge.impact },
     windSurgeSplash: { id: look.windSurge.splash },
+    zekeElderMaulSpecial: { id: ZEKE_GEAR.elderMaul.specialGlow },
+    zekeElderMaulImpact: { id: ZEKE_GEAR.elderMaul.specialImpact },
+    zekeCrimsonKistenSpecial: { id: ZEKE_GEAR.crimsonKisten.specialGlow },
     ...Object.fromEntries(Object.entries(look.spotAnims).map(([name, id]) => [`ezekiel${name}`, { id }])),
     ...Object.fromEntries(Object.entries(look.finaleEffects).map(([name, id]) => [`ezekielFinale${name}`, { id }])),
   },
-  items: { harmonisedNightmareStaff: { id: look.harmonisedNightmareStaff } },
+  items: {
+    harmonisedNightmareStaff: { id: look.harmonisedNightmareStaff },
+    ...Object.fromEntries(Object.entries(ZEKE_GEAR).map(([name, gear]) => [`zeke${name}`, { id: gear.id }])),
+  },
   sounds: {
     ...Object.fromEntries(Object.entries(look.sounds).map(([name, id]) => [`ezekiel${name}`, { id }])),
     windSurgeCast: { id: look.windSurge.castSound },

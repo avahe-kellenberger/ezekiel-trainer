@@ -291,6 +291,9 @@ export class Zeke extends Mob {
         return;
       case "enrage-dodge-cue": this.sound(ZEKE_PRESENTATION.sounds.finaleDodgeCue); return;
       case "enrage-hit": this.hit(event.target, "hazard", ZEKE_RULES.enrage.damageMin.value + this.roll(ZEKE_RULES.enrage.damage.value - ZEKE_RULES.enrage.damageMin.value)); return;
+      case "successful-dodge":
+        this.participants().find((player) => player.participantId === event.target)?.confirmSuccessfulDodge(event.tick);
+        return;
       case "enrage-reset": this.sound(ZEKE_PRESENTATION.sounds.finaleReset, ZEKE_RULES.enrage.resetSoundDelay.value); return;
       case "ended":
         this.speak(ZEKE_DIALOGUE.death);

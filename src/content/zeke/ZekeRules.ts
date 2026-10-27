@@ -116,6 +116,7 @@ export const ZEKE_RULES = {
     safeDirections: rule<readonly ("north" | "south" | "west")[]>(["north", "south", "west"], "Wiki safe masks are left, right or back when facing the boss east; rotated into SDK coordinates."),
   },
   dodge: {
+    specialRestore: rule(3, "User requires each successful dodge to restore three percentage points of special attack immediately; native encounter behavior remains unverified."),
     strafeAngleOffset: rule(1028, "RSProx section 7: all 205 strafes face opposite the travel direction plus four native angle units."),
     strafeCycles: rule(clientCycles(8), "RSProx section 7: all 205 recorded one-tile strafes use an exact move lasting eight client cycles."),
     rollCycles: rule(clientCycles(15), "RSProx section 7: all 248 recorded rolls use an exact move lasting fifteen client cycles. Four-tile practice rolls use the same duration."),

@@ -1,4 +1,5 @@
 import { ZEKE_PRESENTATION } from "./content/zeke/assets";
+import { ZEKE_GEAR } from "./content/zeke/ZekeGearData";
 import type { CacheAssets } from "osrs-sdk/asset-manifest";
 import type { SpriteFrame } from "./content/ocellus/js/OcellusTimings";
 import { OCELLUS_P4 } from "./content/ocellus/js/OcellusTimings";
@@ -51,7 +52,7 @@ export const ARCHIVE_OCELLUS_ASSETS = {
   sounds: P4_ASSETS.sounds,
 } as const satisfies CacheAssets;
 
-export const ITEM_ICON_IDS = [...Object.values(gear.items).map((item) => item.itemId.value), ...Object.values(gear.sdkIcons).map((itemId) => itemId.value), ZEKE_PRESENTATION.harmonisedNightmareStaff];
+export const ITEM_ICON_IDS = [...new Set([...Object.values(gear.items).map((item) => item.itemId.value), ...Object.values(gear.sdkIcons).map((itemId) => itemId.value), ZEKE_PRESENTATION.harmonisedNightmareStaff, ...Object.values(ZEKE_GEAR).map((item) => item.id)])];
 
 export const ARCHIVE_OCELLUS_OVERRIDES = {
   items: Object.fromEntries(Object.entries(gear.sdkCacheIds).map(([key, id]) => [key, { id: id.value }])),

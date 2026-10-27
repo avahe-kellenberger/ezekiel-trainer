@@ -73,6 +73,7 @@ export type EncounterEvent =
   | Readonly<{ kind: "enrage-tell"; safe: EnrageSafe; volley: number }>
   | Readonly<{ kind: "enrage-dodge-cue" }>
   | Readonly<{ kind: "enrage-hit"; target: string }>
+  | Readonly<{ kind: "successful-dodge"; target: string; tick: Tick }>
   | Readonly<{ kind: "enrage-reset" }>
   | Readonly<{ kind: "ended" }>;
 
@@ -222,6 +223,13 @@ function hazardParticipants(observation: EncounterObservation): readonly Partici
   return allParticipants(observation).map((member) => observation.dodgeLandings.find((landing) => landing.id === member.id) ?? member);
 }
 
+function confirmSuccessfulDodges(observation: EncounterObservation, events: EncounterEvent[]): void {
+  for (const landing of observation.dodgeLandings) {
+    const hit = events.some((event) => (event.kind === "sword-hit-player" || event.kind === "enrage-hit") && event.target === landing.id);
+    if (!hit) events.push({ kind: "successful-dodge", target: landing.id, tick: observation.tick });
+  }
+}
+
 function swordCrosses(sword: SwordHazard, destination: Tile, point: Tile, halfWidth: number): boolean {
   const start = sword.axis === "x" ? sword.tile.x : sword.tile.y;
   const end = sword.axis === "x" ? destination.x : destination.y;
@@ -273,6 +281,7 @@ export function resolveAfterMovement(state: EncounterState, observation: Encount
     state = { ...state, autos: ordinal };
   }
   const resolved = moveSwords(state, observation, events);
+  if (events.some((event) => event.kind === "sword-charge")) confirmSuccessfulDodges(observation, events);
   return { state: resolved, events };
 }
 
@@ -398,6 +407,7 @@ function advanceEnrage(state: EncounterState, observation: EncounterObservation)
     stars = enrageStars(state, observation.tick, pattern);
     events.push({ kind: "star-burst" });
     for (const player of hazardParticipants(observation)) if (!safeFromEnrage(player.tile, pattern)) events.push({ kind: "enrage-hit", target: player.id });
+    confirmSuccessfulDodges(observation, events);
   }
   if (state.stars.length > 0 && stars.length === 0) events.push({ kind: "star-expire" });
   return { state: { ...state, stars, phase: { ...phase, volley: volleyIndex + 1, pattern }, nextHazardId: state.nextHazardId + stars.length }, events, movement: { kind: "hold" } };
