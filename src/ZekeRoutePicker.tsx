@@ -46,8 +46,8 @@ function ScenarioIcon({ scenario }: Readonly<{ scenario: ZekeRouteScenario }>) {
 function demoMessage(status: ZekeRouteDemoStatus): string {
   switch (status.kind) {
     case "disabled": return "Choose a scenario to practise.";
-    case "practice": return "Your turn · this scenario repeats from home";
-    case "playing": return `Playing route · loop ${status.cycle}`;
+    case "practice": return "Manual practice · you control the tank";
+    case "playing": return `Automatic demo · loop ${status.cycle} · game input locked`;
     case "failed": return `Route stopped: ${status.reason}`;
     default: {
       const unhandled: never = status;
@@ -59,19 +59,40 @@ function demoMessage(status: ZekeRouteDemoStatus): string {
 export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: ZekeRegion; trainer: TrainerInstance; ready: boolean }>) {
   const [open, setOpen] = useState(false);
   const [showPath, setShowPath] = useState(false);
+  const [paused, setPaused] = useState(trainer.world.isPaused);
   const [status, setStatus] = useState(() => region.routeDemoSnapshot());
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     const poll = window.setInterval(() => {
       const next = region.routeDemoSnapshot();
       const resetOffset = ZEKE_RULES.swords.chargeAfter.value + ZEKE_RULES.autos.recoveryStar.value - 1;
-      if (next.kind === "practice" && ((next.starOffset !== null && next.starOffset >= resetOffset) || next.cycle > 1 || region.result !== null)) {
+      if (!trainer.world.isPaused && next.kind === "practice" && ((next.starOffset !== null && next.starOffset >= resetOffset) || next.cycle > 1 || region.result !== null)) {
         trainer.reset();
       }
       setStatus(region.routeDemoSnapshot());
+      setPaused(trainer.world.isPaused);
     }, 100);
     return () => window.clearInterval(poll);
   }, [region, trainer]);
+  useEffect(() => {
+    const guard = (event: Event) => {
+      if (region.routeDemoSnapshot().kind !== "playing") return;
+      const target = event.target;
+      const keyboard = event instanceof KeyboardEvent;
+      if (keyboard) {
+        if (["Tab", "Escape", "Enter", " "].includes(event.key) && target instanceof Element && target.closest("button, input, select, textarea, a, [contenteditable]")) return;
+      } else {
+        if (!(target instanceof HTMLCanvasElement)) return;
+        // Keep middle-button camera rotation available while watching.
+        if (event instanceof MouseEvent && event.button === 1) return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    const events = ["pointerdown", "pointerup", "mousedown", "mouseup", "click", "contextmenu", "touchstart", "touchend", "keydown", "keyup"];
+    events.forEach((name) => window.addEventListener(name, guard, { capture: true, passive: false }));
+    return () => { events.forEach((name) => window.removeEventListener(name, guard, true)); };
+  }, [region]);
   useEffect(() => {
     const close = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
     window.addEventListener("keydown", close);
@@ -88,6 +109,7 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
     else url.searchParams.set("route", id);
     window.history.replaceState(null, "", url);
     setStatus(region.routeDemoSnapshot());
+    setPaused(trainer.world.isPaused);
     setOpen(false);
   };
   const play = () => {
@@ -95,16 +117,23 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
     else region.playRoute();
     trainer.reset();
     setStatus(region.routeDemoSnapshot());
+    setPaused(trainer.world.isPaused);
+  };
+  const togglePause = () => {
+    if (trainer.world.isPaused) trainer.start();
+    else trainer.stop();
+    setPaused(trainer.world.isPaused);
   };
   return (
     <>
       {showPath && ready && status.kind !== "disabled" && <ZekeRouteOverlay trainer={trainer} scenario={status.scenario} />}
       {status.kind !== "disabled" && !open && <section id="route_demo_status" aria-label="Scenario practice">
         <strong>{status.scenario.label}</strong>
-        <span role="status" data-kind={status.kind}>{demoMessage(status)}</span>
+        <span role="status" data-kind={status.kind}>{paused ? "Paused · " : ""}{demoMessage(status)}</span>
         <label className="route_path_toggle"><input id="route_show_path" type="checkbox" disabled={!ready} checked={showPath} onChange={(event) => setShowPath(event.target.checked)} /> Show path and numbered clicks</label>
         <div>
-          <button id="route_play" type="button" disabled={!ready} onClick={play}>{status.kind === "playing" ? "Take control" : "Play route"}</button>{" "}
+          <button id="route_play" type="button" disabled={!ready} onClick={play}>{status.kind === "playing" ? "Practise manually" : "Watch automatic demo"}</button>{" "}
+          <button id="route_pause" type="button" disabled={!ready || status.kind === "failed"} onClick={togglePause}>{paused ? "Resume" : "Pause"}</button>{" "}
           <button id="route_replay" type="button" disabled={!ready} onClick={() => trainer.reset()}>Restart</button>{" "}
           <button type="button" onClick={() => setOpen(true)}>Change scenario</button>{" "}
           <button id="route_manual" type="button" onClick={() => choose(null)}>Exit scenarios</button>
@@ -113,7 +142,7 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
       </section>}
       <section ref={panel} id="route_scenarios" aria-labelledby="route_scenarios_title" hidden={!open}>
         <div className="route_scenarios_heading"><h2 id="route_scenarios_title">Choose a scenario</h2><button type="button" onClick={() => setOpen(false)} aria-label="Close scenarios">Close</button></div>
-        <p>Practise one pattern on repeat. Show the path or press Play route to watch it.</p>
+        <p>Practise one pattern on repeat. Show the path or choose Watch automatic demo to watch the simulator control the tank.</p>
         <div className="route_scenario_grid">
           {ZEKE_ROUTE_SCENARIOS.map((scenario) => <button type="button" key={scenario.id} data-scenario={scenario.id} aria-label={`Select ${scenario.label}`} aria-pressed={status.kind !== "disabled" && status.scenario.id === scenario.id} disabled={!ready} onClick={() => choose(scenario.id)}>
             <ScenarioIcon scenario={scenario} />
@@ -122,7 +151,7 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
         </div>
         <p className="route_legend"><span /> Red tiles show sword paths. Sweeps cover the lanes in numbered order.</p>
       </section>
-      <button id="route_picker" type="button" disabled={!ready} aria-expanded={open} onClick={() => setOpen(!open)}>Scenarios</button>
+      <button id="route_picker" type="button" disabled={!ready} aria-controls="route_scenarios" aria-expanded={open} onClick={() => setOpen(!open)}>Choose sword scenario</button>
     </>
   );
 }

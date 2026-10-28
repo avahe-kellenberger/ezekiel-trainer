@@ -288,6 +288,30 @@ describe("Zeke through the real SDK world", () => {
     } finally { drill.dispose(); }
   });
 
+  test("standing under the star takes damage on both explosion ticks, with a safe tick between", () => {
+    const drill = practice({ invincible: true });
+    try {
+      drill.tickTo(16);
+      drill.player.currentStats.hitpoint = drill.player.stats.hitpoint;
+      drill.player.setLocation({ x: 5, y: 5 });
+      drill.player.moveTo(5, 5);
+      drill.tickTo(18);
+      const before = drill.player.currentStats.hitpoint;
+      drill.tickTo(19);
+      const first = drill.player.currentStats.hitpoint;
+      expect(before - first).toBeGreaterThanOrEqual(20);
+      expect(before - first).toBeLessThanOrEqual(34);
+      expect(drill.boss.rows.at(-1)?.events).toContainEqual({ kind: "star-hit", target: "tank" });
+      drill.tickTo(20);
+      expect(drill.player.currentStats.hitpoint).toBe(first);
+      expect(drill.boss.rows.at(-1)?.events.some((event) => event.kind === "star-hit")).toBe(false);
+      drill.tickTo(21);
+      expect(first - drill.player.currentStats.hitpoint).toBeGreaterThanOrEqual(20);
+      expect(first - drill.player.currentStats.hitpoint).toBeLessThanOrEqual(34);
+      expect(drill.boss.rows.at(-1)?.events).toContainEqual({ kind: "star-hit", target: "tank" });
+    } finally { drill.dispose(); }
+  });
+
   test("ordinary walk clicks still wait for a world tick outside a dodge window", () => {
     const drill = practice({ invincible: true });
     try {

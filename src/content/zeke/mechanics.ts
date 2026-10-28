@@ -137,12 +137,12 @@ function starTiles(boss: Tile, at: Tick, firstId: number): readonly StarHazard[]
     for (let y = ZEKE_RULES.arena.min.value; y <= ZEKE_RULES.arena.max.value; y++) {
       const dx = Math.abs(x - center.x);
       const dy = Math.abs(y - center.y);
-      const onRing = Math.max(dx, dy) === ring;
+      const inCore = Math.max(dx, dy) <= ring;
       const broadArm = (dx === ring + 1 && dy <= half) || (dy === ring + 1 && dx <= half);
       const tip = (dy === 0 && dx > ring + 1 && dx <= ring + ZEKE_RULES.star.outerArm.value) || (dx === 0 && dy > ring + 1 && dy <= ring + ZEKE_RULES.star.outerArm.value);
-      if (onRing || broadArm || tip) stars.push({
+      if (inCore || broadArm || tip) stars.push({
         id: firstId + stars.length, tile: tile(x, y), activeFrom: tick(at + ZEKE_RULES.star.activeAfter.value), expiresAt: tick(at + ZEKE_RULES.star.expiresAfter.value),
-        visual: { kind: "star", delay: clientCycles(ZEKE_RULES.star.visualSpawnDelay.value + (Math.max(dx, dy) - ring) * ZEKE_RULES.star.visualArmDelay.value) },
+        visual: { kind: "star", delay: clientCycles(ZEKE_RULES.star.visualSpawnDelay.value + Math.max(0, Math.max(dx, dy) - ring) * ZEKE_RULES.star.visualArmDelay.value) },
       });
     }
   }
@@ -332,7 +332,7 @@ export function advanceEncounter(previous: EncounterState, observation: Encounte
   if (firstBeat || secondBeat) {
     events.push({ kind: "star-burst" });
     for (const member of hazardParticipants(observation)) {
-      if (state.stars.some((star) => star.tile.x === member.tile.x && star.tile.y === member.tile.y) || (secondBeat && bossContains(observation.boss, member.tile))) events.push({ kind: "star-hit", target: member.id });
+      if (state.stars.some((star) => star.tile.x === member.tile.x && star.tile.y === member.tile.y)) events.push({ kind: "star-hit", target: member.id });
     }
   }
   if (state.stars.some((star) => star.expiresAt === observation.tick)) events.push({ kind: "star-expire" });

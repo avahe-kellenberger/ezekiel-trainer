@@ -126,22 +126,31 @@ describe("Recorded star and sword mechanics", () => {
     ]);
   });
 
-  it("renders the ring and arms, hits only at S+3/S+5, and includes underneath only on beat two", () => {
+  it("renders the filled star, including the footprint, and hits only at S+3/S+5", () => {
     const rows = run(24, () => ({ tank: UNDER, party: [{ id: "ring", tile: tile(3, 5) }, { id: "gap", tile: tile(2, 2) }] }));
     const cue = rows[15].step.state;
     const mask = new Set(cue.stars.map((star) => `${star.tile.x},${star.tile.y}`));
     expect(mask.has("3,3")).toBe(true);
     expect(mask.has("8,4")).toBe(true);
     expect(mask.has("9,5")).toBe(true);
-    expect(mask.has("5,5")).toBe(false);
-    expect(mask.has("4,4")).toBe(false);
+    expect(mask.has("5,5")).toBe(true);
+    expect(mask.has("4,4")).toBe(true);
     expect(mask.has("2,2")).toBe(false);
     expect(events(rows).filter(({ event }) => event.kind === "star-hit")).toEqual([
+      { at: 19, event: { kind: "star-hit", target: "tank" } },
       { at: 19, event: { kind: "star-hit", target: "ring" } },
       { at: 21, event: { kind: "star-hit", target: "tank" } },
       { at: 21, event: { kind: "star-hit", target: "ring" } },
     ]);
     expect(last(rows).stars).toEqual([]);
+  });
+
+  it.each([tile(4, 4), tile(5, 4), tile(6, 4), tile(4, 5), tile(5, 5), tile(6, 5), tile(4, 6), tile(5, 6), tile(6, 6)])("hits footprint tile $x,$y on both explosions, and allows it between explosions", (under) => {
+    const rows = run(24, () => ({ tank: under }));
+    expect(events(rows).filter(({ event }) => event.kind === "star-hit")).toEqual([
+      { at: 19, event: { kind: "star-hit", target: "tank" } },
+      { at: 21, event: { kind: "star-hit", target: "tank" } },
+    ]);
   });
 
   it("spawns swords at the cue and crosses the entire arena exactly fourteen ticks later", () => {
