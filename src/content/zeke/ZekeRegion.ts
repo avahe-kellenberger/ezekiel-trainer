@@ -1,4 +1,4 @@
-import { CardinalDirection, InvisibleMovementBlocker, Region, ScytheOfVitur, SoundCache, cacheSound } from "osrs-sdk";
+import { CardinalDirection, InvisibleMovementBlocker, LineOfSight, Region, ScytheOfVitur, SoundCache, cacheSound } from "osrs-sdk";
 import type { Player } from "osrs-sdk";
 import { tick, tile } from "../../sim/brands";
 import type { Tick } from "../../sim/brands";
@@ -12,10 +12,10 @@ import { inDodgeWindow } from "./mechanics";
 import { ZekeRouteDemo } from "./ZekeRouteDemo";
 import { executeZekeRouteAction } from "./ZekeRouteActions";
 import type { ZekeRouteCombatEvent } from "./ZekeRouteActions";
-import type { ZekeRouteDemoStatus } from "./ZekeRouteDemo";
+import type { ZekeRouteAttackMode, ZekeRouteDemoStatus } from "./ZekeRouteDemo";
 import type { ZekeRouteId } from "./ZekeRoutePlans";
 
-export type ZekeConfig = Readonly<{ seed?: number; invincible?: boolean; setup?: "melee" | "ranged"; phase?: "full" | "finale"; routeDemo?: ZekeRouteId; routeAutoplay?: boolean; skipCountdown?: boolean }>;
+export type ZekeConfig = Readonly<{ seed?: number; invincible?: boolean; setup?: "melee" | "ranged"; phase?: "full" | "finale"; routeDemo?: ZekeRouteId; routeAutoplay?: boolean; routeAttackMode?: ZekeRouteAttackMode; skipCountdown?: boolean }>;
 type Mounted = Readonly<{ boss: Zeke; player: ZekePlayer }> | null;
 export type ZekeRunResult = Readonly<{ kind: "victory" | "death"; tick: Tick; invincible: boolean }>;
 type RunState =
@@ -29,6 +29,7 @@ export class ZekeRegion extends Region {
   private routeDemo: ZekeRouteDemo;
   private selectedRoute: ZekeRouteId | null;
   private routeAutoplay: boolean;
+  private routeAttackMode: ZekeRouteAttackMode;
   readonly seed: number;
   invincible: boolean;
 
@@ -36,7 +37,8 @@ export class ZekeRegion extends Region {
     super();
     this.selectedRoute = config.routeDemo ?? null;
     this.routeAutoplay = config.routeAutoplay ?? false;
-    this.routeDemo = new ZekeRouteDemo(this.selectedRoute, this.routeAutoplay);
+    this.routeAttackMode = config.routeAttackMode ?? "scythe";
+    this.routeDemo = new ZekeRouteDemo(this.selectedRoute, this.routeAutoplay, this.routeAttackMode);
     this.seed = config.seed ?? 1;
     this.invincible = config.invincible ?? false;
   }
@@ -48,7 +50,7 @@ export class ZekeRegion extends Region {
 
   override reset(startWorld = true): { player: Player } {
     this.projectileGraphics = [];
-    this.routeDemo = new ZekeRouteDemo(this.selectedRoute, this.routeAutoplay);
+    this.routeDemo = new ZekeRouteDemo(this.selectedRoute, this.routeAutoplay, this.routeAttackMode);
     this.runState = { kind: "active" };
     const result = super.reset(false);
     if (this.selectedRoute === null && this.config.phase === "finale" && this.mounted) this.mounted.boss.currentStats.hitpoint = Math.floor(this.mounted.boss.stats.hitpoint * ZEKE_RULES.enrage.threshold.value);
@@ -63,7 +65,7 @@ export class ZekeRegion extends Region {
       if (!state) return null;
       const at = tick(state.tick + 1);
       return inDodgeWindow(state, at, tile(location.x, location.y)) ? at : null;
-    });
+    }, (participant) => this.attackRouteBoss(participant));
     dressZekePlayer(player, this.selectedRoute !== null && this.routeAutoplay ? "melee" : this.config.setup ?? "melee");
     if (this.selectedRoute !== null) {
       player.prayerController.findPrayerByName("Protect from Melee").toggle(player);
@@ -160,7 +162,24 @@ export class ZekeRegion extends Region {
 
   playRoute(): void { this.routeAutoplay = true; }
   takeRouteControl(): void { this.routeAutoplay = false; }
+  setRouteAttackMode(mode: ZekeRouteAttackMode): void { this.routeAttackMode = mode; }
   routeDemoSnapshot(): ZekeRouteDemoStatus { return this.routeDemo.snapshot(); }
+
+  private attackRouteBoss(player: ZekePlayer): void {
+    if (!this.mounted || player !== this.mounted.player) return;
+    const { boss } = this.mounted;
+    const at = tick(boss.encounterTick);
+    if (!this.routeDemo.canIssueScythe(at) || !(player.equipment.weapon instanceof ScytheOfVitur) || player.aggro === boss || player.attackDelay > 0) return;
+    const destination = player.destinationLocation;
+    if (destination && (destination.x !== player.location.x || destination.y !== player.location.y)) return;
+    if (!LineOfSight.playerHasLineOfSightOfMob(this, player.location.x, player.location.y, boss, player.attackRange)) return;
+    const result = executeZekeRouteAction({ kind: "attack-boss" }, player, boss);
+    switch (result.kind) {
+      case "issued": this.routeDemo.recordIssued(at, { kind: "attack-boss" }); break;
+      case "failed": this.routeDemo.fail(result.reason); break;
+      default: { const unhandled: never = result; return unhandled; }
+    }
+  }
 
   override beforeNpcTurns(): void {
     if (!this.mounted) return;

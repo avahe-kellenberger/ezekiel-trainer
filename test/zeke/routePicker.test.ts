@@ -53,6 +53,71 @@ describe("watchable route scenario picker", () => {
 });
 
 describe("automatic demo controls", () => {
+  test("defaults to scythe, restarts when Wind Surge changes, and hides the box without interrupting playback", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    Settings.readFromStorage();
+    Settings.set({ playsAudio: false, playsAreaAudio: false });
+    const region = new ZekeRegion({ routeDemo: "cross-2-2", routeAutoplay: true });
+    const trainer = new TrainerInstance(region);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const startLoop = vi.spyOn(trainer.world, "startLoop").mockImplementation(() => {});
+    trainer.mount(document.createElement("canvas"), container);
+    const root = createRoot(container);
+    const click = (selector: string) => {
+      const control = container.querySelector(selector);
+      if (!(control instanceof HTMLElement)) throw new Error(`Missing ${selector}`);
+      act(() => control.click());
+    };
+    const windSurge = () => {
+      const control = container.querySelector("#route_wind_surge");
+      if (!(control instanceof HTMLInputElement)) throw new Error("Missing Wind Surge checkbox");
+      return control;
+    };
+    try {
+      act(() => root.render(React.createElement(ZekeRoutePicker, { region, trainer, ready: true })));
+      expect(windSurge().checked).toBe(false);
+      expect(region.routeDemoSnapshot()).toMatchObject({ kind: "playing", attackMode: "scythe" });
+      const original = trainer.getSnapshot().player;
+      click("#route_wind_surge");
+      expect(windSurge().checked).toBe(true);
+      expect(region.routeDemoSnapshot()).toMatchObject({ kind: "playing", attackMode: "wind-surge", starOffset: null });
+      expect(trainer.getSnapshot().player).not.toBe(original);
+      click("#route_replay");
+      expect(windSurge().checked).toBe(true);
+      expect(region.routeDemoSnapshot()).toMatchObject({ attackMode: "wind-surge" });
+      click("#route_wind_surge");
+      expect(windSurge().checked).toBe(false);
+      expect(region.routeDemoSnapshot()).toMatchObject({ attackMode: "scythe" });
+      const beforeClose = region.routeDemoSnapshot();
+      const player = trainer.getSnapshot().player;
+      click("#route_close");
+      expect(container.querySelector("#route_demo_status")).toBeNull();
+      expect(container.querySelector("#route_picker")?.textContent).toBe("Show scenario");
+      expect(document.activeElement?.id).toBe("route_picker");
+      expect(region.routeDemoSnapshot()).toEqual(beforeClose);
+      expect(trainer.getSnapshot().player).toBe(player);
+      expect(trainer.world.isPaused).toBe(false);
+      click("#route_picker");
+      expect(container.querySelector("#route_demo_status")).not.toBeNull();
+      expect(windSurge().checked).toBe(false);
+      expect(region.routeDemoSnapshot()).toEqual(beforeClose);
+      windSurge().focus();
+      act(() => windSurge().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+      expect(container.querySelector("#route_demo_status")).toBeNull();
+      expect(document.activeElement?.id).toBe("route_picker");
+      const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+      document.activeElement?.dispatchEvent(tab);
+      expect(tab.defaultPrevented).toBe(false);
+    } finally {
+      act(() => root.unmount());
+      trainer.dispose();
+      container.remove();
+      startLoop.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   test("locks game input during the demo, pauses without resetting, and restores manual control", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     Settings.readFromStorage();

@@ -18,6 +18,7 @@ export class ZekePlayer extends Player {
     readonly participantId: string,
     private readonly invincible: () => boolean,
     private readonly dodgeTick: (location: Location) => Tick | null = () => null,
+    private readonly beforeAttackStep: (player: ZekePlayer) => void = () => {},
   ) {
     super(region, location);
   }
@@ -156,6 +157,11 @@ export class ZekePlayer extends Player {
     const attacked = super.attack();
     if (!attacked) { this.castPose = null; this.castSpeed = null; }
     return attacked;
+  }
+
+  override attackStep(): void {
+    this.beforeAttackStep(this);
+    super.attackStep();
   }
 
   override get attackAnimationId(): number { return this.castPose ?? super.attackAnimationId; }

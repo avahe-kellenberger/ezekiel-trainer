@@ -97,7 +97,7 @@ it("timeline validation rejects two inputs sharing an execution tick", () => {
 });
 
 it("the issued ledger records actual actions and rejects a second command on the same tick", () => {
-  const demo = new ZekeRouteDemo("cross-2-2", true);
+  const demo = new ZekeRouteDemo("cross-2-2", true, "wind-surge");
   expect(demo.issuedActions()).toEqual([]);
   const action = { kind: "equip", weapon: "harm" } as const;
   demo.recordIssued(tick(1), action);
@@ -106,7 +106,7 @@ it("the issued ledger records actual actions and rejects a second command on the
 });
 
 it("opening inputs dispatch once per tick and remain absent from the issued ledger until applied", () => {
-  const demo = new ZekeRouteDemo("cross-2-2", true);
+  const demo = new ZekeRouteDemo("cross-2-2", true, "wind-surge");
   expect(demo.beforeTick(tick(1))).toEqual({ kind: "attack-boss" });
   expect(demo.beforeTick(tick(1))).toBeNull();
   expect(demo.issuedActions()).toEqual([]);

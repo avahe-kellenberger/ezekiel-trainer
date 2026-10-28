@@ -8,7 +8,7 @@ import type { ZekeRouteScenario } from "../../src/content/zeke/ZekeRoutePlans";
 function nativeCross(scenario: ZekeRouteScenario, lateFinalAttack: boolean) {
   Settings.readFromStorage();
   Settings.set({ playsAudio: false, playsAreaAudio: false, inputDelay: 0 });
-  const region = new ZekeRegion({ seed: 1, routeDemo: scenario.id, routeAutoplay: true });
+  const region = new ZekeRegion({ seed: 1, routeDemo: scenario.id, routeAutoplay: true, routeAttackMode: "wind-surge" });
   const trainer = new TrainerInstance(region, { readyTimer: 0 });
   trainer.mount(document.createElement("canvas"), document.createElement("div"));
   const boss = region.primaryBoss;

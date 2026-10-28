@@ -9,14 +9,15 @@ import { validateZekeRouteActions } from "./ZekeRouteActions";
 import type { ZekeIssuedRouteAction, ZekeRecordedRouteCombat, ZekeRouteAction, ZekeRouteCombatEvent } from "./ZekeRouteActions";
 
 type RouteProgress = Readonly<{ scenario: ZekeRouteScenario; starOffset: TickSpan | null; cycle: number }>;
+export type ZekeRouteAttackMode = "scythe" | "wind-surge";
 type RouteState =
   | Readonly<{ kind: "disabled" }>
   | (RouteProgress & Readonly<{ kind: "practice" | "playing" }>)
   | (RouteProgress & Readonly<{ kind: "failed"; reason: string }>);
 
 export type ZekeRouteDemoStatus =
-  | Readonly<{ kind: "disabled" }>
-  | (Exclude<RouteState, Readonly<{ kind: "disabled" }>> & Readonly<{ lastClick: ZekeRouteClick | null; issuedActions: readonly ZekeIssuedRouteAction[]; combat: readonly ZekeRecordedRouteCombat[] }>);
+  | Readonly<{ kind: "disabled"; attackMode: ZekeRouteAttackMode }>
+  | (Exclude<RouteState, Readonly<{ kind: "disabled" }>> & Readonly<{ attackMode: ZekeRouteAttackMode; lastClick: ZekeRouteClick | null; issuedActions: readonly ZekeIssuedRouteAction[]; combat: readonly ZekeRecordedRouteCombat[] }>);
 
 export class ZekeRouteDemo {
   private status: RouteState;
@@ -28,7 +29,7 @@ export class ZekeRouteDemo {
   private meleeAutos = 0;
   private checkedReset = false;
 
-  constructor(id: ZekeRouteId | null, autoplay: boolean) {
+  constructor(id: ZekeRouteId | null, autoplay: boolean, readonly attackMode: ZekeRouteAttackMode = "scythe") {
     const scenario = ZEKE_ROUTE_SCENARIOS.find((entry) => entry.id === id);
     if (scenario) {
       validateZekeRouteActions(scenario.openingActions);
@@ -40,11 +41,11 @@ export class ZekeRouteDemo {
   private readState(): RouteState { return this.status; }
 
   snapshot(): ZekeRouteDemoStatus {
-    if (this.status.kind === "disabled") return this.status;
+    if (this.status.kind === "disabled") return { ...this.status, attackMode: this.attackMode };
     const cycle = this.status.cycle;
     const lastMove = [...this.issued].reverse().find((entry) => entry.cycle === cycle && entry.starOffset !== null && entry.action.kind === "move");
     const lastClick: ZekeRouteClick | null = lastMove?.action.kind === "move" && lastMove.starOffset !== null ? { at: lastMove.starOffset, to: lastMove.action.to } : null;
-    return { ...this.status, lastClick, issuedActions: this.issuedActions(), combat: [...this.combat] };
+    return { ...this.status, attackMode: this.attackMode, lastClick, issuedActions: this.issuedActions(), combat: [...this.combat] };
   }
 
   issuedActions(): readonly ZekeIssuedRouteAction[] { return [...this.issued]; }
@@ -70,7 +71,14 @@ export class ZekeRouteDemo {
     this.dispatchedAt = at;
     const actions = this.starStarted === null ? this.status.scenario.openingActions : this.status.scenario.actions;
     const offset = starOffset ?? span(at - 0);
-    return actions.find((candidate) => candidate.at === offset)?.action ?? null;
+    const action = actions.find((candidate) => candidate.at === offset)?.action ?? null;
+    if (this.attackMode === "wind-surge") return action;
+    if (action?.kind === "move" || action?.kind === "attack-boss") return action;
+    return null;
+  }
+
+  canIssueScythe(at: Tick): boolean {
+    return this.status.kind === "playing" && this.attackMode === "scythe" && !this.issued.some((entry) => entry.tick === at);
   }
 
   fail(reason: string): void {
@@ -124,13 +132,14 @@ export class ZekeRouteDemo {
     } else if (this.meleeAutos !== ZEKE_RULES.autos.count.value * 2) {
       this.fail("The route did not contain all four melee attacks.");
     } else if (!this.combatComplete(state.scenario, state.cycle)) {
-      this.fail("The scheduled sword casts, landings, or return to scythe did not complete.");
+      this.fail(this.attackMode === "wind-surge" ? "The scheduled sword casts, landings, or return to scythe did not complete." : "The scythe route did not land an attack on the boss.");
     } else replenish = true;
     return replenish;
   }
 
   private combatComplete(scenario: ZekeRouteScenario, cycle: number): boolean {
     const events = this.combat.filter((event) => event.cycle === cycle);
+    if (this.attackMode === "scythe") return events.some((event) => event.kind === "scythe-hit") && events.every((event) => event.kind === "scythe-hit");
     const casts = events.filter((event) => event.kind === "cast");
     const targets = scenario.actions.flatMap(({ action }) => action.kind === "attack-sword" ? [action.index] : []);
     const landed = events.filter((event) => event.kind === "sword-hit");

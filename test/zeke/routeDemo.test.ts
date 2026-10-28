@@ -1,4 +1,4 @@
-import { Settings, TrainerInstance } from "osrs-sdk";
+import { LineOfSight, ScytheOfVitur, Settings, TrainerInstance } from "osrs-sdk";
 import { ZekeRegion } from "../../src/content/zeke/ZekeRegion";
 import type { ZekeConfig } from "../../src/content/zeke/ZekeRegion";
 import { Zeke } from "../../src/content/zeke/Zeke";
@@ -45,7 +45,7 @@ function practice(config: ZekeConfig = {}) {
 
 describe("native route practice", () => {
   test.each(ZEKE_ROUTE_SCENARIOS)("$id loops native routes through three sword cycles with a home reset", (scenario) => {
-    const drill = practice({ routeDemo: scenario.id, routeAutoplay: true });
+    const drill = practice({ routeDemo: scenario.id, routeAutoplay: true, routeAttackMode: "wind-surge" });
     const inputTicks: number[] = [];
     let dispatchTick: number | null = null;
     let inputDepth = 0;
@@ -142,11 +142,89 @@ describe("native route practice", () => {
     }
   });
 
+  test.each(ZEKE_ROUTE_SCENARIOS)("$id defaults to safe scythe attacks throughout three native route cycles", (scenario) => {
+    const drill = practice({ routeDemo: scenario.id, routeAutoplay: true });
+    const swings: number[] = [];
+    const opportunities: number[] = [];
+    const { boss, player } = drill.actors();
+    const didAttack = player.didAttack.bind(player);
+    const observeSwings = vi.spyOn(player, "didAttack").mockImplementation(() => {
+      expect(player.equipment.weapon).toBeInstanceOf(ScytheOfVitur);
+      swings.push(boss.encounterTick);
+      didAttack();
+    });
+    const movementStep = player.movementStep.bind(player);
+    const observeOpportunities = vi.spyOn(player, "movementStep").mockImplementation(() => {
+      movementStep();
+      const status = drill.region.routeDemoSnapshot();
+      if (status.kind !== "playing") return;
+      const input = status.issuedActions.find((entry) => entry.tick === boss.encounterTick);
+      const destination = player.destinationLocation;
+      if (input?.action.kind === "move" || player.attackDelay > 0
+        || (destination && (destination.x !== player.location.x || destination.y !== player.location.y))) return;
+      if (LineOfSight.playerHasLineOfSightOfMob(drill.region, player.location.x, player.location.y, boss, player.attackRange)) opportunities.push(boss.encounterTick);
+    });
+    try {
+      for (let cycle = 1; cycle <= 3; cycle++) {
+        drill.tickTo(15 + 37 * cycle);
+        const status = drill.region.routeDemoSnapshot();
+        expect(status).toMatchObject({ kind: "playing", attackMode: "scythe", cycle, starOffset: 36 });
+        if (status.kind === "disabled") throw new Error("Native route was disabled.");
+        expect(status.combat.every((event) => event.kind === "scythe-hit")).toBe(true);
+        expect(status.combat.some((event) => event.cycle === cycle && event.kind === "scythe-hit")).toBe(true);
+        expect(status.issuedActions.every(({ action }) => action.kind === "move" || action.kind === "attack-boss")).toBe(true);
+        expect(new Set(status.issuedActions.map((entry) => entry.tick)).size).toBe(status.issuedActions.length);
+        const firstTick = 16 + 37 * (cycle - 1);
+        const positions = boss.rows.filter((row) => row.tick >= firstTick && row.tick <= firstTick + 36)
+          .flatMap((row) => row.players.filter((participant) => participant.id === "tank").map(({ x, y }) => ({ x, y })));
+        const changed = positions.filter((position, index) => index === 0 || position.x !== positions[index - 1]?.x || position.y !== positions[index - 1]?.y);
+        expect(changed).toEqual(scenario.trace);
+        expect(boss.location).toEqual({ x: 4, y: 6 });
+        expect(player.location).toEqual({ x: 4, y: 7 });
+      }
+      expect(swings.slice(0, 3)).toEqual([1, 6, 11]);
+      expect(opportunities.filter((at) => !swings.includes(at))).toEqual([]);
+      for (let cycle = 1; cycle <= 3; cycle++) {
+        const star = 16 + 37 * (cycle - 1);
+        expect(swings.some((at) => at >= star && at < star + 15)).toBe(true);
+      }
+      expect(swings.every((at, index) => index === 0 || at - (swings[index - 1] ?? at) >= player.attackSpeed)).toBe(true);
+      const events = boss.rows.flatMap((row) => row.events);
+      expect(events.filter((event) => event.kind === "auto")).toHaveLength(14);
+      expect(events.filter((event) => event.kind === "sword-hit-boss")).toHaveLength(scenario.expectedHits * 3);
+      expect(events.some((event) => event.kind === "star-hit" || event.kind === "sword-hit-player" || (event.kind === "auto" && event.style === "magic"))).toBe(false);
+    } finally { observeOpportunities.mockRestore(); observeSwings.mockRestore(); drill.trainer.dispose(); }
+  });
+
+  test("route attack selection persists through restarts and switches back to scythe", () => {
+    const drill = practice({ routeDemo: "cross-2-2", routeAutoplay: true });
+    try {
+      expect(drill.region.routeDemoSnapshot()).toMatchObject({ attackMode: "scythe" });
+      drill.region.setRouteAttackMode("wind-surge");
+      drill.trainer.reset();
+      drill.tickTo(30);
+      const wind = drill.region.routeDemoSnapshot();
+      if (wind.kind === "disabled") throw new Error("Native route was disabled.");
+      expect(wind).toMatchObject({ kind: "playing", attackMode: "wind-surge" });
+      expect(wind.combat.filter((event) => event.kind === "cast")).toHaveLength(4);
+      drill.trainer.reset();
+      expect(drill.region.routeDemoSnapshot()).toMatchObject({ attackMode: "wind-surge" });
+      drill.region.setRouteAttackMode("scythe");
+      drill.trainer.reset();
+      drill.tickTo(52);
+      const scythe = drill.region.routeDemoSnapshot();
+      if (scythe.kind === "disabled") throw new Error("Native route was disabled.");
+      expect(scythe).toMatchObject({ kind: "playing", attackMode: "scythe" });
+      expect(scythe.combat.every((event) => event.kind === "scythe-hit")).toBe(true);
+      expect(drill.actors().player.equipment.weapon).toBeInstanceOf(ScytheOfVitur);
+    } finally { drill.trainer.dispose(); }
+  });
+
   test("normal practice leaves routes and protection prayer disabled", () => {
     const drill = practice();
     try {
       drill.tickTo(18);
-      expect(drill.region.routeDemoSnapshot()).toEqual({ kind: "disabled" });
+      expect(drill.region.routeDemoSnapshot()).toEqual({ kind: "disabled", attackMode: "scythe" });
       expect(drill.actors().player.location).toEqual({ x: 4, y: 7 });
       expect(drill.actors().player.prayerController.matchFeature("melee")).toBeFalsy();
     } finally { drill.trainer.dispose(); }
@@ -178,7 +256,7 @@ describe("native route practice", () => {
       expect(drill.actors().player.location).toEqual({ x: 4, y: 7 });
       drill.region.selectRouteScenario(null);
       drill.trainer.reset();
-      expect(drill.region.routeDemoSnapshot()).toEqual({ kind: "disabled" });
+      expect(drill.region.routeDemoSnapshot()).toEqual({ kind: "disabled", attackMode: "scythe" });
     } finally { drill.trainer.dispose(); }
   });
 
@@ -205,7 +283,7 @@ describe("native route practice", () => {
   });
 
   test("magic stops autopilot with a visible failure", () => {
-    const drill = practice({ routeDemo: "cross-2-2", routeAutoplay: true });
+    const drill = practice({ routeDemo: "cross-2-2", routeAutoplay: true, routeAttackMode: "wind-surge" });
     try {
       drill.tickTo(23);
       drill.actors().player.setLocation({ x: 9, y: 1 });
@@ -217,7 +295,7 @@ describe("native route practice", () => {
   });
 
   test("an active step-under stops autopilot and Play route clears the failure", () => {
-    const drill = practice({ routeDemo: "cross-2-2", routeAutoplay: true });
+    const drill = practice({ routeDemo: "cross-2-2", routeAutoplay: true, routeAttackMode: "wind-surge" });
     try {
       drill.tickTo(22);
       const { boss, player } = drill.actors();
@@ -232,7 +310,7 @@ describe("native route practice", () => {
   });
 
   test("an explosion hit fails autopilot even when the tank survives it", () => {
-    const drill = practice({ routeDemo: "cross-2-2", routeAutoplay: true });
+    const drill = practice({ routeDemo: "cross-2-2", routeAutoplay: true, routeAttackMode: "wind-surge" });
     try {
       drill.tickTo(18);
       const { boss, player } = drill.actors();
@@ -246,7 +324,7 @@ describe("native route practice", () => {
   });
 
   test("a missing home reset fails instead of advancing another autopilot cycle", () => {
-    const drill = practice({ routeDemo: "cross-2-2", routeAutoplay: true });
+    const drill = practice({ routeDemo: "cross-2-2", routeAutoplay: true, routeAttackMode: "wind-surge" });
     try {
       drill.tickTo(51);
       drill.actors().player.setLocation({ x: 1, y: 1 });
@@ -257,7 +335,7 @@ describe("native route practice", () => {
   });
 
   test("pause preserves the current route and restart replays the opening attacks", () => {
-    const drill = practice({ routeDemo: "two-rows", routeAutoplay: true });
+    const drill = practice({ routeDemo: "two-rows", routeAutoplay: true, routeAttackMode: "wind-surge" });
     try {
       drill.tickTo(5);
       const before = drill.region.routeDemoSnapshot();

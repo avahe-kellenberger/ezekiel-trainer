@@ -8,7 +8,7 @@ describe("route markings on the arena floor", () => {
   test.each(ZEKE_ROUTE_SCENARIOS)("$id remains safe with markings enabled", (scenario) => {
     Settings.readFromStorage();
     Settings.set({ playsAudio: false, playsAreaAudio: false });
-    const region = new ZekeRegion({ seed: 1, routeDemo: scenario.id, routeAutoplay: true });
+    const region = new ZekeRegion({ seed: 1, routeDemo: scenario.id, routeAutoplay: true, routeAttackMode: "wind-surge" });
     const trainer = new TrainerInstance(region);
     trainer.mount(document.createElement("canvas"), document.createElement("div"));
     try {
