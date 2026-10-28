@@ -6,7 +6,7 @@ The default page opens the Ezekiel encounter. The original Ocellus trainer remai
 
 ## Run the trainer
 
-Use Node 22. Install dependencies and the pinned SDK together. The SDK packages are not saved in `package.json`, so running `npm ci` again requires rerunning the SDK installer.
+Use Node 22.22.2 or later in the 22.x line. With nvm, run `nvm install` and `nvm use` to select the version in `.nvmrc`. Install dependencies and the pinned SDK together. The SDK packages are not saved in `package.json`, so running `npm ci` again requires rerunning the SDK installer.
 
 ```sh
 npm ci

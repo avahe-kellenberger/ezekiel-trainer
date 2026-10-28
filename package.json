@@ -9,7 +9,7 @@
     "url": "git+https://github.com/Julian-Dasilva/ArchiveOcellusTrainer.git"
   },
   "engines": {
-    "node": ">=22 <23"
+    "node": ">=22.22.2 <23"
   },
   "scripts": {
     "start": "tsx src/assetBundle/check.ts && webpack serve --mode development",

@@ -12,7 +12,7 @@
         "fixtures": "review-ratchet/fixtures/replay-controls",
         "violation": { "fixture": "violation", "setup": ["bash", "make-repo.sh", "{fixture}"], "args": ["--repo", "{fixture}/repo", "--base", "base", "--head", "head"] },
         "clean": { "fixture": "clean", "setup": ["bash", "make-repo.sh", "{fixture}"], "args": ["--repo", "{fixture}/repo", "--base", "base", "--head", "head"] },
-        "used_by": [".github/workflows/test.yml"]
+        "used_by": ["CODE_REVIEW.md"]
       }
     },
     {
@@ -27,7 +27,7 @@
         "fixtures": "review-ratchet/fixtures/substituted-policy",
         "violation": { "fixture": "violation", "args": ["{fixture}"] },
         "clean": { "fixture": "clean", "args": ["{fixture}"] },
-        "used_by": [".github/workflows/test.yml"]
+        "used_by": ["CODE_REVIEW.md"]
       }
     },
     {

@@ -222,7 +222,7 @@ install_from_another_commit_is_replaced() {
 unreadable_installed_manifest_is_replaced() {
   setup
   installed_from_packs "$PIN" || return 1
-  echo '{' >"$APP/node_modules/osrs-sdk/package.json"
+  echo '{' >"$APP/node_modules/osrs-sdk-assets/package.json"
   ready
   bash "$APP/scripts/verify.sh" build >"$T/out.txt" 2>&1
   local status=$?

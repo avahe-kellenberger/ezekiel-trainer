@@ -274,7 +274,7 @@
     },
     {
       "path": "scripts/verify/shard.mjs",
-      "tests": ["scripts/verify/t2.test.sh"],
+      "tests": ["scripts/verify/shard.test.sh"],
       "policies": [
         {
           "policy": "each unit goes to the shard with the least time so far",
@@ -283,28 +283,6 @@
         {
           "policy": "a shard prints only its own units",
           "mutation": [{ "find": "for (const unit of units.filter((unit) => load[at - 1].units.has(unit))) console.log(unit);", "replace": "for (const unit of units) console.log(unit);" }]
-        }
-      ]
-    },
-    {
-      "path": "scripts/verify/t2-summary.mjs",
-      "tests": ["scripts/verify/t2.test.sh"],
-      "policies": [
-        {
-          "policy": "a browser unit that did not pass, or never reported, fails T2",
-          "mutation": [{ "find": "const failedUnits = units.filter(([, { outcome }]) => outcome !== \"passed\");", "replace": "const failedUnits = [];" }]
-        },
-        {
-          "policy": "a stage that did not pass fails T2",
-          "mutation": [{ "find": "verdict.production === \"PASS\" && verdict.perf === \"PASS\"", "replace": "verdict.production === \"PASS\"" }]
-        },
-        {
-          "policy": "timing pairs the plan selected must pass",
-          "mutation": [{ "find": "(verdict.perfTiming === \"PASS\" || !timingSelected)", "replace": "true" }]
-        },
-        {
-          "policy": "every asset the head deletes is listed",
-          "mutation": [{ "find": "verdict.assets.deleted.map((key) => `  - deleted ${key}`)", "replace": "[]" }]
         }
       ]
     }

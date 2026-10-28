@@ -2,17 +2,26 @@
 
 Read this before you review a change to the trainer, whether you are a person or an agent. It lists the performance mistakes to look for and the check that proves them. Players have reported lag, so a review judges performance as well as correctness.
 
-## How the gate runs
+## Run the local checks
 
 | Tier | Where and when | Command | Proves |
 | --- | --- | --- | --- |
 | T0 | the maker's laptop, every iteration | `scripts/verify.sh t0` | the asset bundle, build, types, Vitest with the headless perf budgets, and the seeded fights against the base, in under a minute |
 | T1 | the maker's laptop, before handoff | `scripts/verify.sh plan`, then the command it prints | the browser units the change selects, each runnable alone with `--unit` |
-| T2 | GitHub Actions, every push to a pull request | the `test` workflow | every browser unit in eight shards, the production bundle, the perf budgets, the timing pairs when the plan selects them, and the asset diff against the base |
 
 A seeded fight that differs from the base fails T0 unless `scripts/verify-parity-expected.json` names that fight with the sha256 of its head result and a reason. The parity stage prints the fight, its first differing value and that sha256. The reviewer judges each entry as an intended change to the fight. An edit to `scripts/verify-impact.json` plans every unit, and the plan refuses a group or rule that selects no unit.
 
-The lead reads the pull request head's T2 result instead of rerunning the full verify on a laptop. The `summary` job prints it, and its `t2-verdict` artifact holds `verdict.json` with every unit's outcome and every check, the assets the head deletes, adds or changes, the pinned SDK, and the production and perf checks. A failed unit's captures are in its shard's `t2-browser-N` artifact. Reproduce it on a laptop with `scripts/verify.sh browser --unit <id>`.
+Verification runs locally. The author shares the evidence directory printed by `scripts/verify.sh`, and the reviewer reads its `summary.txt` and the selected units' `verdict.json` files. Reproduce a failed unit with `scripts/verify.sh browser --unit <id>`. Run `scripts/verify.sh` for the full asset, build, type, test, browser and production checks, and `scripts/verify.sh perfbudgets` for the performance budgets.
+
+Before handoff, run the shell checks and review checks locally:
+
+```sh
+for check in scripts/*.test.sh scripts/verify/*.test.sh review-ratchet/checks/*.test.sh; do
+  bash "$check" || exit 1
+done
+node review-ratchet/checks/shell-test-runs-entry.mjs .
+node review-ratchet/checks/replay-controls.mjs --base "$(git merge-base origin/master HEAD)"
+```
 
 ## Look for these performance red flags
 
@@ -32,7 +41,7 @@ A change to rendering, the tick loop, entities, views or input states its perfor
 ## Run the perf stage
 
 ```sh
-source ~/osrs-sims/env.sh                     # Node 22 on this machine
+nvm use
 scripts/verify.sh assets perfbudgets          # assets once, then every budget that does not need timing pairs
 scripts/verify.sh perf                        # those budgets plus the throttled base and head timing pairs
 VERIFY_PERF_BASE=<rev> scripts/verify.sh perf # compare against a base other than the merge base with origin/main
@@ -46,7 +55,7 @@ Every fight-window run is CPU throttled 4 times (`workload.cpuThrottleRate`), so
 
 Each run uses `?seed=1&invincible=on`, stands still, and runs from P4 tick 8 to P4 tick 80, so the void rifts that spawn at tick 67 are on screen for the last 13 ticks. The stage runs 5 pairs of base and head runs, alternating their order, then one long head run to P4 tick 400. The whole stage takes about 14 minutes, both on an M3 Max and on a GitHub Actions runner.
 
-On CI the `perf` job runs `perfbudgets` for every pull request. The `perf-timing` job runs `perf` only when the plan selects `perf_timing`: a change to the SDK pin, the build, the shared encounter layer or `src/perf`. `.github/workflows/nightly.yml` runs it every night against `main` a day earlier.
+Run `scripts/verify.sh perfbudgets` before handoff. When the plan selects `perf_timing`, run `scripts/verify.sh perf` too. Changes to the SDK pin, the build, the shared encounter layer or `src/perf` select the timing pairs.
 
 ## Read the verdict
 
@@ -88,12 +97,12 @@ The limit rests on 7 throttled runs whose base and head ship the same game code,
 
 | Budget | Check | Runs |
 | --- | --- | --- |
-| `drawCallsMedian3d`, `drawCallsMax3d`, `trianglesMax3d` | the long run's fight window in `perfbudgets` and `perf` | every pull request on CI |
-| `geometriesPerRetiredRift3d`, `texturesPerRetiredRift3d`, `heapGrowthMiB3d`, `sceneObjectGrowth3d` | the long run in `perfbudgets` and `perf` | every pull request on CI |
-| `mobGrowth3d`, `entityGrowth3d`, `projectileGrowth3d` | the long run, and `src/perf/views.test.ts` without a browser | every pull request on CI; the Vitest file also in every T0 |
-| `bundleKiB` | the head build in `perfbudgets` and `perf` | every pull request on CI |
-| `headless.viewAllocationsPerFrame` | `src/perf/views.test.ts` | every T0 and the CI `test` job |
-| `tickGapExcess3d`, `frameP95` and `tickGapP95` against `timing.medianRatioLimit` | the throttled pairs in `perf` | when the plan selects `perf_timing`, and nightly |
+| `drawCallsMedian3d`, `drawCallsMax3d`, `trianglesMax3d` | the long run's fight window in `perfbudgets` and `perf` | local performance verification |
+| `geometriesPerRetiredRift3d`, `texturesPerRetiredRift3d`, `heapGrowthMiB3d`, `sceneObjectGrowth3d` | the long run in `perfbudgets` and `perf` | local performance verification |
+| `mobGrowth3d`, `entityGrowth3d`, `projectileGrowth3d` | the long run, and `src/perf/views.test.ts` without a browser | local performance verification; the Vitest file also in every T0 |
+| `bundleKiB` | the head build in `perfbudgets` and `perf` | local performance verification |
+| `headless.viewAllocationsPerFrame` | `src/perf/views.test.ts` | every T0 |
+| `tickGapExcess3d`, `frameP95` and `tickGapP95` against `timing.medianRatioLimit` | the throttled pairs in `perf` | when the plan selects `perf_timing` |
 
 The draw-call budgets used to read the throttled head runs. The long run draws the same renders unthrottled. In a laptop run on `main` at 99868bc, the five throttled head runs and the long run's window all measured a median of 14 calls and a maximum of 27. The long run sits a little closer to the median's edge: 51.6% of its renders draw 14 calls or fewer, against 52.3 to 52.7% for the head runs.
 
@@ -109,7 +118,7 @@ A raised budget hides the next regression of the same size, so the stage refuses
 
 ```json
 "exceptions": [
-  { "budget": "drawCallsMax3d", "from": 27, "to": 51, "reason": "the new floor glow draws one mesh per lit tile", "evidence": "https://github.com/<owner>/<repo>/actions/runs/<id>" }
+  { "budget": "drawCallsMax3d", "from": 27, "to": 51, "reason": "the new floor glow draws one mesh per lit tile", "evidence": "<shared perf evidence location>" }
 ]
 ```
 
