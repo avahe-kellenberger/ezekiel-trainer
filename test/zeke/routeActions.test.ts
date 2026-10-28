@@ -3,6 +3,8 @@ import { span, tick, tile } from "../../src/sim/brands";
 import { HarmonisedNightmareStaff } from "../../src/content/zeke/HarmonisedNightmareStaff";
 import { Zeke } from "../../src/content/zeke/Zeke";
 import { ZekePlayer } from "../../src/content/zeke/ZekePlayer";
+import { createEncounter } from "../../src/content/zeke/mechanics";
+import { seed } from "../../src/sim/brands";
 import { executeZekeRouteAction, validateZekeRouteActions } from "../../src/content/zeke/ZekeRouteActions";
 import { ZekeRouteDemo } from "../../src/content/zeke/ZekeRouteDemo";
 import { dressZekePlayer } from "../../src/content/zeke/loadout";
@@ -107,9 +109,9 @@ it("the issued ledger records actual actions and rejects a second command on the
 
 it("opening inputs dispatch once per tick and remain absent from the issued ledger until applied", () => {
   const demo = new ZekeRouteDemo("cross-2-2", true, "wind-surge");
-  expect(demo.beforeTick(tick(1))).toEqual({ kind: "attack-boss" });
-  expect(demo.beforeTick(tick(1))).toBeNull();
+  expect(demo.beforeTick(tick(1), createEncounter(seed(1)))).toEqual({ kind: "attack-boss" });
+  expect(demo.beforeTick(tick(1), createEncounter(seed(1)))).toBeNull();
   expect(demo.issuedActions()).toEqual([]);
-  expect(demo.beforeTick(tick(14))).toEqual({ kind: "move", to: tile(4, 7) });
-  expect(demo.beforeTick(tick(15))).toEqual({ kind: "equip", weapon: "harm" });
+  expect(demo.beforeTick(tick(14), createEncounter(seed(1)))).toEqual({ kind: "move", to: tile(4, 7) });
+  expect(demo.beforeTick(tick(15), createEncounter(seed(1)))).toEqual({ kind: "equip", weapon: "harm" });
 });

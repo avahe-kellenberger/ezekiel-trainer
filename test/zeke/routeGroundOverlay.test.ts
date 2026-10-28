@@ -20,13 +20,11 @@ describe("route markings on the arena floor", () => {
         expect(marker.selectable).toBe(false);
         region.addEntity(marker);
       }
-      for (let at = 1; at <= 53; at++) region.world.tickWorld();
-      expect(region.routeDemoSnapshot()).toMatchObject({ kind: "playing", cycle: 2 });
-      expect(boss.location).toEqual({ x: 4, y: 6 });
-      expect(region.players[0].location).toEqual({ x: 4, y: 7 });
+      for (let at = 1; at <= 41; at++) region.world.tickWorld();
+      expect(region.routeDemoSnapshot()).toMatchObject({ kind: "complete", cycle: 1 });
       const events = boss.rows.flatMap((row) => row.events);
       expect(events.filter((event) => event.kind === "sword-hit-boss")).toHaveLength(scenario.expectedHits);
-      expect(events.filter((event) => event.kind === "auto")).toHaveLength(6);
+      expect(events.filter((event) => event.kind === "auto")).toHaveLength(4);
       expect(events.some((event) => event.kind === "star-hit" || event.kind === "sword-hit-player" || (event.kind === "auto" && event.style === "magic"))).toBe(false);
       markers.forEach((marker) => region.removeEntity(marker));
       expect(region.entities.some((entity) => markers.includes(entity))).toBe(false);

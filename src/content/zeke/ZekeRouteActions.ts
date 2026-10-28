@@ -8,7 +8,8 @@ export type ZekeRouteAction =
   | Readonly<{ kind: "move"; to: Tile }>
   | Readonly<{ kind: "equip"; weapon: "harm" | "scythe" }>
   | Readonly<{ kind: "attack-sword"; index: number }>
-  | Readonly<{ kind: "attack-boss" }>;
+  | Readonly<{ kind: "attack-boss" }>
+  | Readonly<{ kind: "stop-attacking" }>;
 
 export type ZekeTimedRouteAction = Readonly<{ at: TickSpan; action: ZekeRouteAction }>;
 export type ZekeIssuedRouteAction = Readonly<{ tick: Tick; cycle: number; starOffset: TickSpan | null; action: ZekeRouteAction }>;
@@ -47,6 +48,9 @@ export function executeZekeRouteAction(action: ZekeRouteAction, player: Player, 
     }
     case "attack-boss":
       player.setAggro(boss);
+      break;
+    case "stop-attacking":
+      player.setAggro(null);
       break;
     default: {
       const unhandled: never = action;

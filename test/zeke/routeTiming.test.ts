@@ -31,7 +31,7 @@ describe("native sword deadline", () => {
 
   test.each(crosses)("$id applies its fourth native projectile on the sixteenth displayed sword tick", (scenario) => {
     const { status, rows, impactSwordIds } = nativeCross(scenario, false);
-    expect(status.kind).toBe("playing");
+    expect(status.kind).toBe("complete");
     if (status.kind === "disabled") throw new Error("Native route was disabled.");
     const casts = status.combat.filter((event) => event.kind === "cast");
     expect(casts.map((event) => event.starOffset + 1)).toEqual([2, 6, 10, 14]);

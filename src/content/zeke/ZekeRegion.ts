@@ -11,7 +11,7 @@ import { ZekeArena } from "./hazards";
 import { inDodgeWindow } from "./mechanics";
 import { ZekeRouteDemo } from "./ZekeRouteDemo";
 import { executeZekeRouteAction } from "./ZekeRouteActions";
-import type { ZekeRouteCombatEvent } from "./ZekeRouteActions";
+import type { ZekeRouteAction, ZekeRouteCombatEvent } from "./ZekeRouteActions";
 import type { ZekeRouteAttackMode, ZekeRouteDemoStatus } from "./ZekeRouteDemo";
 import type { ZekeRouteId } from "./ZekeRoutePlans";
 
@@ -50,7 +50,10 @@ export class ZekeRegion extends Region {
 
   override reset(startWorld = true): { player: Player } {
     this.projectileGraphics = [];
-    this.routeDemo = new ZekeRouteDemo(this.selectedRoute, this.routeAutoplay, this.routeAttackMode);
+    const previous = this.routeDemo.snapshot();
+    const cycle = previous.kind === "complete" && previous.scenario.id === this.selectedRoute && previous.attackMode === this.routeAttackMode
+      && previous.control === (this.routeAutoplay ? "playing" : "practice") ? previous.cycle + 1 : 1;
+    this.routeDemo = new ZekeRouteDemo(this.selectedRoute, this.routeAutoplay, this.routeAttackMode, cycle);
     this.runState = { kind: "active" };
     const result = super.reset(false);
     if (this.selectedRoute === null && this.config.phase === "finale" && this.mounted) this.mounted.boss.currentStats.hitpoint = Math.floor(this.mounted.boss.stats.hitpoint * ZEKE_RULES.enrage.threshold.value);
@@ -122,12 +125,12 @@ export class ZekeRegion extends Region {
     }
     this.routeDemo.recordCombat(combat);
     const row = boss.rows[boss.rows.length - 1];
-    if (row && this.routeDemo.afterTick(row, tile(boss.location.x, boss.location.y), tile(player.location.x, player.location.y), boss.activeStepUnder)) {
+    if (row && this.routeDemo.afterTick(row, boss.activeStepUnder)) {
       boss.currentStats = { ...boss.stats };
       player.currentStats = { ...player.stats };
     }
     const demoStatus = this.routeDemo.snapshot();
-    if (demoStatus.kind === "failed") this.world.stopTicking();
+    if (demoStatus.kind === "failed" || demoStatus.kind === "complete") this.world.stopTicking();
     const state = this.runState;
     switch (state.kind) {
       case "active":
@@ -169,6 +172,8 @@ export class ZekeRegion extends Region {
     if (!this.mounted || player !== this.mounted.player) return;
     const { boss } = this.mounted;
     const at = tick(boss.encounterTick);
+    const stunnedUntil = this.routeDemo.stunRecovery(boss.encounter);
+    if (stunnedUntil !== null && at >= stunnedUntil) return;
     if (!this.routeDemo.canIssueScythe(at) || !(player.equipment.weapon instanceof ScytheOfVitur) || player.aggro === boss || player.attackDelay > 0) return;
     const destination = player.destinationLocation;
     if (destination && (destination.x !== player.location.x || destination.y !== player.location.y)) return;
@@ -188,7 +193,14 @@ export class ZekeRegion extends Region {
     this.players.forEach((player) => {
       if (player instanceof ZekePlayer) player.beginEncounterTick(at);
     });
-    const action = this.routeDemo.beforeTick(at);
+    let action: ZekeRouteAction | null = this.routeDemo.beforeTick(at, state);
+    const stunnedUntil = this.routeDemo.stunRecovery(state);
+    if (stunnedUntil !== null) {
+      const { player, boss } = this.mounted;
+      if (at >= stunnedUntil) action = player.aggro === null ? null : { kind: "stop-attacking" };
+      else if (!(player.equipment.weapon instanceof ScytheOfVitur)) action = { kind: "equip", weapon: "scythe" };
+      else if (player.aggro !== boss) action = { kind: "attack-boss" };
+    }
     if (action) {
       const result = executeZekeRouteAction(action, this.mounted.player, this.mounted.boss);
       switch (result.kind) {

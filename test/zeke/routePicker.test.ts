@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Settings, TrainerInstance } from "osrs-sdk";
 import { ZekeRegion } from "../../src/content/zeke/ZekeRegion";
 import { ZekeRoutePicker } from "../../src/ZekeRoutePicker";
+import { Zeke } from "../../src/content/zeke/Zeke";
 
 function picker(ready = true) {
   Settings.readFromStorage();
@@ -53,6 +54,65 @@ describe("watchable route scenario picker", () => {
 });
 
 describe("automatic demo controls", () => {
+  test.each([
+    { attackMode: "scythe", control: "playing", route: "cross-2-2" },
+    { attackMode: "wind-surge", control: "playing", route: "cross-2-2" },
+    { attackMode: "scythe", control: "practice", route: "cross-5-2" },
+  ] as const)("$attackMode $control restarts after its full stun through the trainer while its box is hidden", ({ attackMode, control, route }) => {
+    vi.useFakeTimers();
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    Settings.readFromStorage();
+    Settings.set({ playsAudio: false, playsAreaAudio: false });
+    const region = new ZekeRegion({ routeDemo: route, routeAutoplay: control === "playing", routeAttackMode: attackMode, invincible: true });
+    const trainer = new TrainerInstance(region);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const startLoop = vi.spyOn(trainer.world, "startLoop").mockImplementation(() => {});
+    trainer.mount(document.createElement("canvas"), container);
+    const root = createRoot(container);
+    try {
+      act(() => root.render(React.createElement(ZekeRoutePicker, { region, trainer, ready: true })));
+      const close = container.querySelector("#route_close");
+      if (!(close instanceof HTMLButtonElement)) throw new Error("Missing scenario close button");
+      act(() => close.click());
+      const originalPlayer = trainer.getSnapshot().player;
+      const boss = region.primaryBoss;
+      if (!(boss instanceof Zeke)) throw new Error("Missing native boss");
+      let stunEnd: number | null = null;
+      for (let count = 0; count < 90 && region.routeDemoSnapshot().kind !== "complete"; count++) {
+        region.world.tickWorld();
+        const phase = boss.encounter.phase;
+        if (phase.kind === "recovery" && phase.recovery === "weaken") {
+          stunEnd = phase.stunnedUntil;
+          if (boss.encounterTick < stunEnd) expect(region.routeDemoSnapshot().kind).toBe(control);
+        }
+      }
+      expect(stunEnd).not.toBeNull();
+      expect(boss.encounterTick).toBe(stunEnd);
+      expect(region.routeDemoSnapshot()).toMatchObject({ kind: "complete", attackMode });
+      expect(trainer.world.isPaused).toBe(true);
+      expect(trainer.getSnapshot().player).toBe(originalPlayer);
+      act(() => vi.advanceTimersByTime(100));
+      expect(trainer.getSnapshot().player).not.toBe(originalPlayer);
+      expect(trainer.getSnapshot().player).toBe(region.players[0]);
+      expect(region.routeDemoSnapshot()).toMatchObject({ kind: control, attackMode, cycle: 2, starOffset: null });
+      expect(region.snapshot()?.tick).toBe(0);
+      expect(trainer.world.isPaused).toBe(false);
+      expect(container.querySelector("#route_demo_status")).toBeNull();
+      expect(container.querySelector("#route_picker")?.textContent).toBe("Show scenario");
+      const restartedPlayer = trainer.getSnapshot().player;
+      act(() => vi.advanceTimersByTime(500));
+      expect(trainer.getSnapshot().player).toBe(restartedPlayer);
+    } finally {
+      act(() => root.unmount());
+      trainer.dispose();
+      container.remove();
+      startLoop.mockRestore();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
   test("defaults to scythe, restarts when Wind Surge changes, and hides the box without interrupting playback", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     Settings.readFromStorage();

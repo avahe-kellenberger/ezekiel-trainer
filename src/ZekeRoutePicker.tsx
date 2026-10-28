@@ -49,6 +49,7 @@ function demoMessage(status: ZekeRouteDemoStatus): string {
     case "disabled": return "Choose a scenario to practice.";
     case "practice": return "Manual practice · you control the tank";
     case "playing": return `Automatic demo · loop ${status.cycle} · game input locked`;
+    case "complete": return "Stun finished · restarting scenario";
     case "failed": return `Route stopped: ${status.reason}`;
     default: {
       const unhandled: never = status;
@@ -71,7 +72,7 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
       const fight = next.kind === "practice" ? region.snapshot() : null;
       const nextStar = fight?.phase.kind === "recovery" ? nextStarAt(fight.phase) : null;
       const recoveryComplete = fight !== null && nextStar !== null && fight.tick >= nextStar - 1;
-      if (!trainer.world.isPaused && next.kind === "practice" && (recoveryComplete || next.cycle > 1 || region.result !== null)) {
+      if (next.kind === "complete" || (!trainer.world.isPaused && next.kind === "practice" && (recoveryComplete || region.result !== null))) {
         trainer.reset();
       }
       setStatus(region.routeDemoSnapshot());
@@ -160,7 +161,7 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
           <button type="button" onClick={() => setVisiblePanel("scenarios")}>Change scenario</button>{" "}
           <button id="route_manual" type="button" onClick={() => choose(null)}>Exit scenarios</button>
         </div>
-        <small>{status.attackMode === "wind-surge" ? `Harm staff: ${status.scenario.expectedCasts} Wind Surge ${status.scenario.expectedCasts === 1 ? "cast" : "casts"}, then scythe.` : "Scythe the boss whenever the route allows."} At most one input per tick. Changing attack mode restarts the scenario.</small>
+        <small>{status.attackMode === "wind-surge" ? `Harm staff: ${status.scenario.expectedCasts} Wind Surge ${status.scenario.expectedCasts === 1 ? "cast" : "casts"}, then scythe.` : "Scythe the boss whenever the route allows."} Keep attacking through the stun, then restart. At most one input per tick. Changing attack mode restarts the scenario.</small>
         <small>Charge can land through tick {ZEKE_RULES.swords.impactAfter.value + 1}, counting spawn as tick 1. Provisional timing.</small>
       </section>}
       <section ref={panel} id="route_scenarios" aria-labelledby="route_scenarios_title" hidden={!open}>
