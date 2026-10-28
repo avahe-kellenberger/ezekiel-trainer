@@ -46,8 +46,31 @@ function practice(config: ZekeConfig = {}) {
 describe("native route practice", () => {
   test.each(ZEKE_ROUTE_SCENARIOS)("$id loops native routes through three sword cycles with a home reset", (scenario) => {
     const drill = practice({ routeDemo: scenario.id, routeAutoplay: true });
+    const inputTicks: number[] = [];
+    let dispatchTick: number | null = null;
+    let inputDepth = 0;
+    const observeInput = (invoke: () => void) => {
+      if (dispatchTick !== null && inputDepth === 0) inputTicks.push(dispatchTick);
+      inputDepth++;
+      try { invoke(); } finally { inputDepth--; }
+    };
+    const restoreInputs: (() => void)[] = [];
     try {
       const { boss, player } = drill.actors();
+      const move = player.moveTo.bind(player);
+      const target = player.setAggro.bind(player);
+      const dispatch = drill.region.beforeNpcTurns.bind(drill.region);
+      restoreInputs.push(vi.spyOn(player, "moveTo").mockImplementation((...args) => observeInput(() => move(...args))).mockRestore);
+      restoreInputs.push(vi.spyOn(player, "setAggro").mockImplementation((...args) => observeInput(() => target(...args))).mockRestore);
+      for (const item of new Set([...player.inventory, player.equipment.weapon])) {
+        if (!item) continue;
+        const click = item.inventoryLeftClick.bind(item);
+        restoreInputs.push(vi.spyOn(item, "inventoryLeftClick").mockImplementation((...args) => observeInput(() => click(...args))).mockRestore);
+      }
+      restoreInputs.push(vi.spyOn(drill.region, "beforeNpcTurns").mockImplementation(() => {
+        dispatchTick = boss.encounterTick + 1;
+        try { dispatch(); } finally { dispatchTick = null; }
+      }).mockRestore);
       expect(drill.region.world.getReadyTimer).toBe(0);
       drill.tickTo(1);
       drill.region.world.startTicking();
@@ -88,6 +111,8 @@ describe("native route practice", () => {
         expect(combat.some((event) => event.kind === "scythe-hit" && event.tick > Math.max(...casts.map((cast) => cast.tick)))).toBe(true);
         const actions = snapshot.issuedActions;
         expect(new Set(actions.map((entry) => entry.tick)).size).toBe(actions.length);
+        expect(new Set(inputTicks).size).toBe(inputTicks.length);
+        expect(inputTicks).toEqual(actions.map((entry) => entry.tick));
         expect(actions.filter((entry) => entry.cycle === cycle && entry.action.kind === "attack-sword")).toHaveLength(expectedCasts);
         expect(actions.some((entry) => entry.cycle === cycle && entry.action.kind === "equip" && entry.action.weapon === "scythe")).toBe(true);
         expect(player.manualSpellCastSelection).toBeFalsy();
@@ -111,7 +136,10 @@ describe("native route practice", () => {
         expect.objectContaining({ kind: "auto", style: "melee" }),
       ]);
       expect(boss.rows.find((row) => row.tick === 16)?.events).toContainEqual({ kind: "star-tell", pattern: scenario.pattern });
-    } finally { drill.trainer.dispose(); }
+    } finally {
+      restoreInputs.reverse().forEach((restore) => restore());
+      drill.trainer.dispose();
+    }
   });
 
   test("normal practice leaves routes and protection prayer disabled", () => {

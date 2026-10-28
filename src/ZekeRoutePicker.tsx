@@ -46,7 +46,7 @@ function ScenarioIcon({ scenario }: Readonly<{ scenario: ZekeRouteScenario }>) {
 
 function demoMessage(status: ZekeRouteDemoStatus): string {
   switch (status.kind) {
-    case "disabled": return "Choose a scenario to practise.";
+    case "disabled": return "Choose a scenario to practice.";
     case "practice": return "Manual practice · you control the tank";
     case "playing": return `Automatic demo · loop ${status.cycle} · game input locked`;
     case "failed": return `Route stopped: ${status.reason}`;
@@ -136,18 +136,18 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
         <span id="route_casts">Wind Surge casts: {status.combat.filter((event) => event.cycle === status.cycle && event.kind === "cast").length}/{status.scenario.expectedCasts}{status.starOffset === null ? " · Opening attacks" : ` · Tick ${status.starOffset + 1}`}</span>
         <label className="route_path_toggle"><input id="route_show_path" type="checkbox" disabled={!ready} checked={showPath} onChange={(event) => setShowPath(event.target.checked)} /> Show path and numbered clicks</label>
         <div>
-          <button id="route_play" type="button" disabled={!ready} onClick={play}>{status.kind === "playing" ? "Practise manually" : "Watch automatic demo"}</button>{" "}
+          <button id="route_play" type="button" disabled={!ready} onClick={play}>{status.kind === "playing" ? "Practice manually" : "Watch automatic demo"}</button>{" "}
           <button id="route_pause" type="button" disabled={!ready || status.kind === "failed"} onClick={togglePause}>{paused ? "Resume" : "Pause"}</button>{" "}
           <button id="route_replay" type="button" disabled={!ready} onClick={() => trainer.reset()}>Restart</button>{" "}
           <button type="button" onClick={() => setOpen(true)}>Change scenario</button>{" "}
           <button id="route_manual" type="button" onClick={() => choose(null)}>Exit scenarios</button>
         </div>
-        <small>Harm staff: {status.scenario.expectedCasts} Wind Surge {status.scenario.expectedCasts === 1 ? "cast" : "casts"}, then scythe. One action per tick.</small>
+        <small>Harm staff: {status.scenario.expectedCasts} Wind Surge {status.scenario.expectedCasts === 1 ? "cast" : "casts"}, then scythe. At most one input per tick.</small>
         <small>Charge can land through tick {ZEKE_RULES.swords.impactAfter.value + 1}, counting spawn as tick 1. Provisional timing.</small>
       </section>}
       <section ref={panel} id="route_scenarios" aria-labelledby="route_scenarios_title" hidden={!open}>
         <div className="route_scenarios_heading"><h2 id="route_scenarios_title">Choose a scenario</h2><button type="button" onClick={() => setOpen(false)} aria-label="Close scenarios">Close</button></div>
-        <p>Practise one pattern on repeat. Show the path or choose Watch automatic demo to watch the simulator control the tank.</p>
+        <p>Practice one pattern on repeat. Show the path or choose Watch automatic demo to watch the simulator control the tank.</p>
         <div className="route_scenario_grid">
           {ZEKE_ROUTE_SCENARIOS.map((scenario) => <button type="button" key={scenario.id} data-scenario={scenario.id} aria-label={`Select ${scenario.label}`} aria-pressed={status.kind !== "disabled" && status.scenario.id === scenario.id} disabled={!ready} onClick={() => choose(scenario.id)}>
             <ScenarioIcon scenario={scenario} />

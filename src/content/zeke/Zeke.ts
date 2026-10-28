@@ -13,6 +13,7 @@ import { ZEKE_DIALOGUE, ZEKE_SOUND_VOLUME } from "./presentation";
 import { CleaveDust } from "./CleaveDust";
 
 type HitStyle = "melee" | "magic" | "hazard";
+type NonSwordHitEvent = Exclude<EncounterEvent, Readonly<{ kind: "sword-hit-boss" | "sword-hit-player" }>>;
 
 class ZekeHit extends Projectile {
   constructor(from: Unit, private readonly target: ZekePlayer, private readonly hitStyle: HitStyle, private readonly rolled: number, private readonly protectedRoll: number) {
@@ -111,7 +112,7 @@ export class Zeke extends Mob {
     const phase = this.encounter.phase;
     if (phase.kind === "recovery" && phase.recovery === "weaken" && this.elapsed === phase.stunnedUntil - ZEKE_RULES.swords.wakeBeforeStunEnds.value) this.playAnimation(ZEKE_PRESENTATION.weakenEnd);
     this.syncHazards();
-    result.events.forEach((event) => this.apply(event));
+    this.applyEvents(result.events);
   }
 
   private observe() {
@@ -143,7 +144,7 @@ export class Zeke extends Mob {
     this.encounter = result.state;
     this.recentEvents = [...this.recentEvents, ...result.events];
     this.syncHazards();
-    result.events.forEach((event) => this.apply(event));
+    this.applyEvents(result.events);
     super.attackStep();
   }
 
@@ -233,7 +234,24 @@ export class Zeke extends Mob {
     return line;
   }
 
-  private apply(event: EncounterEvent): void {
+  private applyEvents(events: readonly EncounterEvent[]): void {
+    let bossDamage: number | null = null;
+    const playerDamage = new Map<string, number>();
+    for (const event of events) {
+      if (event.kind === "sword-hit-boss") bossDamage = (bossDamage ?? 0) + event.chargeDamage;
+      else if (event.kind === "sword-hit-player") playerDamage.set(event.target, (playerDamage.get(event.target) ?? 0) + event.chargeDamage);
+      else this.apply(event);
+    }
+    if (bossDamage !== null) {
+      this.speak(ZEKE_DIALOGUE.weakened);
+      this.receiveSwordHit(bossDamage);
+      this.playAnimation(ZEKE_PRESENTATION.weakenStart);
+      this.sound(ZEKE_PRESENTATION.sounds.swordImpact);
+    }
+    for (const [target, damage] of playerDamage) this.hit(target, "hazard", damage);
+  }
+
+  private apply(event: NonSwordHitEvent): void {
     switch (event.kind) {
       case "auto": {
         const magic = event.style === "magic";
@@ -261,13 +279,6 @@ export class Zeke extends Mob {
       case "star-expire": return;
       case "star-hit": this.hit(event.target, "hazard", ZEKE_RULES.star.damageMin.value + this.roll(ZEKE_RULES.star.damage.value - ZEKE_RULES.star.damageMin.value)); return;
       case "sword-charge": this.sound(ZEKE_PRESENTATION.sounds.swordFlight1); return;
-      case "sword-hit-player": this.hit(event.target, "hazard", event.chargeDamage); return;
-      case "sword-hit-boss":
-        this.speak(ZEKE_DIALOGUE.weakened);
-        this.receiveSwordHit(event.chargeDamage);
-        this.playAnimation(ZEKE_PRESENTATION.weakenStart);
-        this.sound(ZEKE_PRESENTATION.sounds.swordImpact);
-        return;
       case "swords-missed":
         this.speak(ZEKE_DIALOGUE.heal);
         this.playAnimation(ZEKE_PRESENTATION.heal);

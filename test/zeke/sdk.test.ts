@@ -214,10 +214,10 @@ describe("Zeke through the real SDK world", () => {
       drill.tickTo(31);
       expect(drill.boss.encounter.phase).toEqual({ kind: "recovery", recovery: "weaken", started: 31, stunnedUntil: 41 });
       const landed = drill.boss.hitsThisTick;
-      expect(landed.map((hit) => hit.attackStyle)).toEqual(["magic", "typeless", "typeless"]);
+      expect(landed.map((hit) => hit.attackStyle)).toEqual(["magic", "typeless"]);
       expect(landed[0].damage).toBe(7);
       expect(drill.boss.currentStats.hitpoint).toBe(health - landed.reduce((total, hit) => total + hit.damage, 0));
-      expect(drill.boss.incomingProjectiles.filter((hit) => hit.attackStyle === "typeless" && hit.remainingDelay === 0)).toHaveLength(2);
+      expect(drill.boss.incomingProjectiles.filter((hit) => hit.attackStyle === "typeless" && hit.remainingDelay === 0)).toHaveLength(1);
       expect(later.remainingDelay).toBe(2);
       const afterImpact = drill.boss.currentStats.hitpoint;
       drill.tickTo(32);

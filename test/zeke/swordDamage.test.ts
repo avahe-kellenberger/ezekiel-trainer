@@ -47,10 +47,10 @@ describe("sword damage scales with wind charge", () => {
   test.each([1, 40, 80, 100])("%i charge deals exactly that damage to both player and boss", (charge) => {
     const uncharged = damageSample(0);
     const charged = damageSample(charge, true);
-    expect(uncharged.playerHits).toEqual([0, 0]);
-    expect(uncharged.bossHits).toEqual([0, 0]);
-    expect(charged.playerHits).toEqual([charge, 0]);
-    expect(charged.bossHits).toEqual([charge, 0]);
+    expect(uncharged.playerHits).toEqual([0]);
+    expect(uncharged.bossHits).toEqual([0]);
+    expect(charged.playerHits).toEqual([charge]);
+    expect(charged.bossHits).toEqual([charge]);
     expect(charged.playerHp).toBe(uncharged.playerHp - charge);
     expect(charged.bossHp).toBe(uncharged.bossHp - charge);
     expect(charged.playerHp).toBeGreaterThan(0);
