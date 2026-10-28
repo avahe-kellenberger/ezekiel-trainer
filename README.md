@@ -34,6 +34,8 @@ If installation policy skipped native scripts and extraction reports a missing `
 
 **Settings** selects the melee or ranged loadout, pattern seed, invincibility, sound effects, and music volume. The encounter is always solo. Apply encounter options with **Apply & restart**. **Restart** retries the current setup and seed. **Game settings & keybinds** opens the SDK's settings tab.
 
+**Scenarios** opens all eleven sword patterns as 9×9 previews. Red tiles mark sword paths; numbered arrows show sweep order. Selecting a pattern changes the current trainer without reloading the page and starts scenario practice without a countdown. Each attempt opens with two melee attacks, with Protect from Melee and Piety enabled. The selected pattern repeats from the starting tiles. **Show path and numbered clicks** adds cyan route markings and gold numbered click tiles on the arena. **Play route** runs the verified tank route on repeat; **Take control** returns to manual practice. The simulator checks melee range, hazards, sword hits, and the reset on each automatic loop. These are positioning routes: swords remain uncharged and the tank does not attack. Open `?route=cross-2-2` for a direct scenario link.
+
 Music starts after the first click or key press. The track is *Blade of Forgotten Justice*, composed by Julian Surma. The trainer pauses when its tab is hidden.
 
 Ezekiel's ground overlay follows his true position each tick. The full 3×3 footprint uses the true-tile colour (cyan by default), with his southwest anchor tile outlined in yellow. These replace his interpolated model outline.

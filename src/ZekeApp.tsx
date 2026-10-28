@@ -6,21 +6,26 @@ import { ZekeRegion } from "./content/zeke/ZekeRegion";
 import type { ZekeRunResult } from "./content/zeke/ZekeRegion";
 import { Zeke } from "./content/zeke/Zeke";
 import { installWindSurgeControls, WindSurgeControls } from "./content/zeke/WindSurgeControls";
+import { ZekeRoutePicker } from "./ZekeRoutePicker";
+import { parseZekeRouteId } from "./content/zeke/ZekeRoutePlans";
+import type { ZekeRouteId } from "./content/zeke/ZekeRoutePlans";
 import { ZEKE_PRESENTATION } from "./content/zeke/assets";
 
 const CREDIT_LINE = "Created using intellectual property belonging to Jagex Limited under the terms of Jagex's Fan Content Policy. This content is not endorsed by or affiliated with Jagex.";
 const MUSIC_STORAGE_KEY = "zeke:music-volume";
 
 type Setup = "melee" | "ranged";
-type PracticeOptions = Readonly<{ seed: number; setup: Setup; invincible: boolean; phase: "full" | "finale" }>;
+type PracticeOptions = Readonly<{ seed: number; setup: Setup; invincible: boolean; phase: "full" | "finale"; routeDemo: ZekeRouteId | null }>;
 type MusicState = "waiting" | "playing" | "paused" | "unavailable";
 
 function practiceOptions(): PracticeOptions {
   const params = new URL(window.location.href).searchParams;
   const seed = Number(params.get("seed"));
+  const routeDemo = parseZekeRouteId(params.get("route"));
   return {
     seed: params.has("seed") && Number.isSafeInteger(seed) && seed >= 0 ? seed : crypto.getRandomValues(new Uint32Array(1))[0],
-    phase: params.get("phase") === "finale" ? "finale" : "full",
+    phase: routeDemo === null && params.get("phase") === "finale" ? "finale" : "full",
+    routeDemo,
     setup: params.get("setup") === "ranged" ? "ranged" : "melee",
     invincible: params.get("invincible") === "on",
   };
@@ -42,7 +47,8 @@ function openTrainer() {
   CacheRender.configure(new URL("osrs-assets/manifest.json", window.location.href).href);
   readSettings();
   const options = practiceOptions();
-  const region = new ZekeRegion(options);
+  const { routeDemo, ...encounterOptions } = options;
+  const region = new ZekeRegion(routeDemo === null ? { ...encounterOptions, skipCountdown: true } : { ...encounterOptions, routeDemo, skipCountdown: true });
   const trainer = new TrainerInstance(region);
   installWindSurgeControls();
   if (process.env.NODE_ENV !== "production") window.__zekeProbe = {
@@ -136,7 +142,7 @@ function Music({ ready }: Readonly<{ ready: boolean }>) {
   );
 }
 
-function PracticeControls({ trainer, options, ready }: ReturnType<typeof openTrainer> & Readonly<{ ready: boolean }>) {
+function PracticeControls({ trainer, region, options, ready }: ReturnType<typeof openTrainer> & Readonly<{ ready: boolean }>) {
   const [open, setOpen] = useState(false);
   const [help, setHelp] = useState(false);
   const [phase, setPhase] = useState(options.phase);
@@ -145,10 +151,13 @@ function PracticeControls({ trainer, options, ready }: ReturnType<typeof openTra
   const [seed, setSeed] = useState(String(options.seed));
   const { playsAudio, playsAreaAudio } = useSettingsSnapshot();
   const paused = useTrainerSnapshot(({ world }) => world.isPaused);
+  const demoKind = region.routeDemoSnapshot().kind;
+  const demoFinished = demoKind === "failed";
   const apply = () => {
     const url = new URL(window.location.href);
     url.searchParams.set("setup", setup);
     url.searchParams.set("phase", phase);
+    if (phase === "finale") url.searchParams.delete("route");
     url.searchParams.set("seed", seed);
     url.searchParams.delete("allies");
     if (invincible) url.searchParams.set("invincible", "on");
@@ -179,14 +188,15 @@ function PracticeControls({ trainer, options, ready }: ReturnType<typeof openTra
       <section id="zeke_help" hidden={!help}>
         <h2>Ezekiel practice</h2>
         <p>Left-click to move or attack. Right-click for the game menu. Drag with the middle mouse button to rotate the camera and scroll to zoom.</p>
-        <p>Use the game tabs for prayers, equipment, inventory and combat styles. You are the tank. Line up Ezekiel's south-west tile with a sword lane.</p>
-        <p>Under Ezekiel, he tries a new escape direction each tick. His targeted magic still hits the tank and counts toward his two autos before the star.</p>
+        <p>Use the game tabs for prayers, equipment, inventory and combat styles. You are the tank. Align Ezekiel's center with the sword lanes.</p>
+        <p>Under Ezekiel, he tries a new escape direction each tick. Stay in melee range when he attacks; otherwise his magic hits the whole team.</p>
         <p>Encounter timing and damage remain under calibration.</p>
         <button type="button" onClick={() => setHelp(false)}>Close</button>
       </section>
       <button id="settings" type="button" aria-expanded={open} onClick={() => { setOpen(!open); setHelp(false); }}>Settings</button>
       <button id="restart" type="button" disabled={!ready} onClick={() => trainer.reset()}>Restart</button>
-      <button id="pause" type="button" disabled={!ready} onClick={() => paused ? trainer.start() : trainer.stop()}>{paused ? "Resume" : "Pause"}</button>
+      <button id="pause" type="button" disabled={!ready || demoFinished} onClick={() => paused ? trainer.start() : trainer.stop()}>{paused ? "Resume" : "Pause"}</button>
+      <ZekeRoutePicker region={region} trainer={trainer} ready={ready} />
       <button type="button" aria-expanded={help} onClick={() => { setHelp(!help); setOpen(false); }}>Help</button>
     </form>
   );

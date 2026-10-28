@@ -9,8 +9,11 @@ import { Zeke } from "./Zeke";
 import { ZekePlayer } from "./ZekePlayer";
 import { ZekeArena } from "./hazards";
 import { inDodgeWindow } from "./mechanics";
+import { ZekeRouteDemo } from "./ZekeRouteDemo";
+import type { ZekeRouteDemoStatus } from "./ZekeRouteDemo";
+import type { ZekeRouteId } from "./ZekeRoutePlans";
 
-export type ZekeConfig = Readonly<{ seed?: number; invincible?: boolean; setup?: "melee" | "ranged"; phase?: "full" | "finale" }>;
+export type ZekeConfig = Readonly<{ seed?: number; invincible?: boolean; setup?: "melee" | "ranged"; phase?: "full" | "finale"; routeDemo?: ZekeRouteId; routeAutoplay?: boolean; skipCountdown?: boolean }>;
 type Mounted = Readonly<{ boss: Zeke; player: ZekePlayer }> | null;
 export type ZekeRunResult = Readonly<{ kind: "victory" | "death"; tick: Tick; invincible: boolean }>;
 type RunState =
@@ -21,11 +24,17 @@ type RunState =
 export class ZekeRegion extends Region {
   private mounted: Mounted = null;
   private runState: RunState = { kind: "active" };
+  private routeDemo: ZekeRouteDemo;
+  private selectedRoute: ZekeRouteId | null;
+  private routeAutoplay: boolean;
   readonly seed: number;
   invincible: boolean;
 
   constructor(private readonly config: ZekeConfig = {}) {
     super();
+    this.selectedRoute = config.routeDemo ?? null;
+    this.routeAutoplay = config.routeAutoplay ?? false;
+    this.routeDemo = new ZekeRouteDemo(this.selectedRoute, this.routeAutoplay);
     this.seed = config.seed ?? 1;
     this.invincible = config.invincible ?? false;
   }
@@ -37,9 +46,11 @@ export class ZekeRegion extends Region {
 
   override reset(startWorld = true): { player: Player } {
     this.projectileGraphics = [];
+    this.routeDemo = new ZekeRouteDemo(this.selectedRoute, this.routeAutoplay);
     this.runState = { kind: "active" };
     const result = super.reset(false);
-    if (this.config.phase === "finale" && this.mounted) this.mounted.boss.currentStats.hitpoint = Math.floor(this.mounted.boss.stats.hitpoint * ZEKE_RULES.enrage.threshold.value);
+    if (this.selectedRoute === null && this.config.phase === "finale" && this.mounted) this.mounted.boss.currentStats.hitpoint = Math.floor(this.mounted.boss.stats.hitpoint * ZEKE_RULES.enrage.threshold.value);
+    if (this.selectedRoute !== null || this.config.skipCountdown) this.world.getReadyTimer = 0;
     if (startWorld) this.world.startTicking();
     return result;
   }
@@ -52,8 +63,12 @@ export class ZekeRegion extends Region {
       return inDodgeWindow(state, at, tile(location.x, location.y)) ? at : null;
     });
     dressZekePlayer(player, this.config.setup ?? "melee");
+    if (this.selectedRoute !== null) {
+      player.prayerController.findPrayerByName("Protect from Melee").toggle(player);
+      player.prayerController.findPrayerByName("Piety").toggle(player);
+    }
     this.addPlayer(player);
-    const boss = new Zeke(this, player, this.seed);
+    const boss = new Zeke(this, player, this.seed, this.routeDemo.pattern);
     this.addMob(boss);
     this.setBoss(boss);
     this.addEntity(new ZekeArena(this));
@@ -84,6 +99,13 @@ export class ZekeRegion extends Region {
     if (!this.mounted) return;
     const { boss, player } = this.mounted;
     boss.recordTick();
+    const row = boss.rows[boss.rows.length - 1];
+    if (row && this.routeDemo.afterTick(row, tile(boss.location.x, boss.location.y), tile(player.location.x, player.location.y), boss.activeStepUnder)) {
+      boss.currentStats = { ...boss.stats };
+      player.currentStats = { ...player.stats };
+    }
+    const demoStatus = this.routeDemo.snapshot();
+    if (demoStatus.kind === "failed") this.world.stopTicking();
     const state = this.runState;
     switch (state.kind) {
       case "active":
@@ -111,6 +133,15 @@ export class ZekeRegion extends Region {
     if (this.runState.kind === "finished") this.world.stopTicking();
   }
 
+  selectRouteScenario(id: ZekeRouteId | null, autoplay = false): void {
+    this.selectedRoute = id;
+    this.routeAutoplay = autoplay;
+  }
+
+  playRoute(): void { this.routeAutoplay = true; }
+  takeRouteControl(): void { this.routeAutoplay = false; }
+  routeDemoSnapshot(): ZekeRouteDemoStatus { return this.routeDemo.snapshot(); }
+
   override beforeNpcTurns(): void {
     if (!this.mounted) return;
     const state = this.mounted.boss.encounter;
@@ -118,6 +149,8 @@ export class ZekeRegion extends Region {
     this.players.forEach((player) => {
       if (player instanceof ZekePlayer) player.beginEncounterTick(at);
     });
+    const click = this.routeDemo.beforeTick(at);
+    if (click) this.mounted.player.moveTo(click.to.x, click.to.y, "run-setting");
   }
 
   snapshot() {

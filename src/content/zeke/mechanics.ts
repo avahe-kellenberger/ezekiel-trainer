@@ -171,11 +171,12 @@ function spawnSwords(pattern: SwordPattern, at: Tick, firstId: number): readonly
   }
 }
 
-function startStar(state: EncounterState, observation: EncounterObservation): EncounterState {
+function startStar(state: EncounterState, observation: EncounterObservation, patternOverride: SwordPattern | null): EncounterState {
   const choice = choosePattern(state.rng, state.nextHazardId === 0);
   const stars = starTiles(observation.boss, observation.tick, state.nextHazardId);
-  const swords = spawnSwords(choice.pattern, observation.tick, state.nextHazardId + stars.length);
-  return { ...state, rng: choice.rng, phase: { kind: "star", started: observation.tick, pattern: choice.pattern }, autos: 0, stars, swords, nextHazardId: state.nextHazardId + stars.length + swords.length };
+  const pattern = patternOverride ?? choice.pattern;
+  const swords = spawnSwords(pattern, observation.tick, state.nextHazardId + stars.length);
+  return { ...state, rng: choice.rng, phase: { kind: "star", started: observation.tick, pattern }, autos: 0, stars, swords, nextHazardId: state.nextHazardId + stars.length + swords.length };
 }
 
 function starIsDue(state: EncounterState, at: Tick): boolean {
@@ -303,7 +304,7 @@ function movementAllowed(phase: EncounterPhase, at: Tick): boolean {
   }
 }
 
-export function advanceEncounter(previous: EncounterState, observation: EncounterObservation): EncounterStep {
+export function advanceEncounter(previous: EncounterState, observation: EncounterObservation, patternOverride: SwordPattern | null = null): EncounterStep {
   if (observation.tick !== previous.tick + 1) throw new RangeError("Advance the encounter by one tick at a time.");
   let state: EncounterState = { ...previous, tick: observation.tick };
   const events: EncounterEvent[] = [];
@@ -322,7 +323,7 @@ export function advanceEncounter(previous: EncounterState, observation: Encounte
     state = { ...state, pendingHeal: null };
   }
   if (starIsDue(state, observation.tick)) {
-    state = startStar(state, observation);
+    state = startStar(state, observation, patternOverride);
     if (state.phase.kind === "star") events.push({ kind: "star-tell", pattern: state.phase.pattern });
   }
   const starAge = state.phase.kind === "star" ? observation.tick - state.phase.started : null;

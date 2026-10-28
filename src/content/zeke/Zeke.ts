@@ -5,7 +5,7 @@ import type { ClientCycles, Tick } from "../../sim/brands";
 import { ZEKE_RULES } from "./ZekeRules";
 import { ZEKE_PRESENTATION } from "./assets";
 import { advanceEncounter, cleaveDustTiles, createEncounter, resolveAfterMovement } from "./mechanics";
-import type { BossMovement, EncounterEvent, EncounterState } from "./mechanics";
+import type { BossMovement, EncounterEvent, EncounterState, SwordPattern } from "./mechanics";
 import { ZekePlayer } from "./ZekePlayer";
 import { ZekeModel } from "./ZekeModel";
 import { FinaleBlade, FinaleFence, ZekeStar, ZekeSword } from "./hazards";
@@ -35,6 +35,7 @@ export class Zeke extends Mob {
   encounter: EncounterState;
   readonly rows: ZekeRow[] = [];
   private elapsed = 0;
+  private activeStepUnderThisTick = false;
   private motion: BossMovement = { kind: "hold" };
   private readonly stars = new Map<number, ZekeStar>();
   private readonly swords = new Map<number, ZekeSword>();
@@ -47,7 +48,7 @@ export class Zeke extends Mob {
   private speechEndsAt = clientCycles(0);
   private readonly soundTicks = new Map<number, Tick>();
 
-  constructor(region: Region, private readonly tank: ZekePlayer, seedValue: number) {
+  constructor(region: Region, private readonly tank: ZekePlayer, seedValue: number, private readonly patternOverride: SwordPattern | null = null) {
     super(region, { ...ZEKE_RULES.arena.bossSpawn.value });
     this.encounter = createEncounter(seed(seedValue));
     this.randomState = seedValue ^ 0x5eed0c0b;
@@ -95,7 +96,7 @@ export class Zeke extends Mob {
     if (this.tank.currentStats.hitpoint <= 0) return;
     this.elapsed++;
     if (this.elapsed === ZEKE_RULES.dialogue.engageAfter.value && this.encounter.phase.kind === "opening") this.speak(this.nextLine(ZEKE_DIALOGUE.engage));
-    const result = advanceEncounter(this.encounter, this.observe());
+    const result = advanceEncounter(this.encounter, this.observe(), this.patternOverride);
     this.encounter = result.state;
     this.motion = result.movement;
     this.recentEvents = result.events;
@@ -138,6 +139,7 @@ export class Zeke extends Mob {
   }
 
   override movementStep(): void {
+    this.activeStepUnderThisTick = false;
     if (this.tank.currentStats.hitpoint <= 0 || this.motion.kind === "hold" || this.currentStats.hitpoint <= 0 || this.isFrozen() || this.isDying()) {
       if (this.visualPath.length === 0) this.visualMovementActive = false;
       return;
@@ -146,6 +148,7 @@ export class Zeke extends Mob {
       super.movementStep();
       return;
     }
+    this.activeStepUnderThisTick = this.canMove();
     const next = { x: this.location.x + this.motion.dx, y: this.location.y + this.motion.dy };
     this.region.clearTileCollisionFlags(this.location.x, this.location.y, this.size);
     const clear = Pathing.canTileBePathedTo(this.region, next.x, next.y, this.size, true);
@@ -163,6 +166,7 @@ export class Zeke extends Mob {
   }
 
   get encounterTick(): number { return this.elapsed; }
+  get activeStepUnder(): boolean { return this.activeStepUnderThisTick; }
 
   override get hitsThisTick(): Unit["hitsThisTick"] {
     return this.swordHits.tick === this.region.world.globalTickCounter ? [...super.hitsThisTick, ...this.swordHits.hits] : super.hitsThisTick;
