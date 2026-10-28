@@ -19,6 +19,39 @@ function equipStaff(player: Player): void {
   inventory.panelClickUp(x, y);
 }
 
+it("sword charging keeps the Wind Surge projectile and charge bar without drawing damage hitsplats", () => {
+  Settings.readFromStorage();
+  Settings.set({ playsAudio: false, playsAreaAudio: false, inputDelay: 0 });
+  const region = new ZekeRegion({ seed: 1, invincible: true });
+  const trainer = new TrainerInstance(region);
+  const player = trainer.mount(document.createElement("canvas"), document.createElement("div"));
+  try {
+    region.world.tickWorld(region.world.getReadyTimer - 1);
+    equipStaff(player);
+    region.world.tickWorld(ZEKE_RULES.autos.openingStar.value);
+    const sword = [...region.mobs, ...region.newMobs].find((mob) => mob instanceof ZekeSword);
+    if (!(sword instanceof ZekeSword)) throw new Error("No native sword spawned.");
+    player.setLocation({ x: 5, y: 5 });
+    InputController.controller.queueAction(() => Trainer.clickController.playerAttackClick(sword));
+    region.world.tickWorld();
+    const projectile = sword.incomingProjectiles.find((hit) => hit.from === player);
+    if (!projectile) throw new Error("Harm staff did not cast.");
+    expect(projectile.options.visuals.spotAnim).toEqual({ id: 1456 });
+    region.world.tickWorld(projectile.remainingDelay);
+    expect(sword.chargeDamage).toBe(80);
+    expect(sword.hitsThisTick).toContainEqual({ damage: 80, attackStyle: "magic", from: player });
+    expect(sword.incomingProjectiles).toContain(projectile);
+    const drawing = { drawImage: vi.fn(), fillText: vi.fn(), fillRect: vi.fn(), fillStyle: "" };
+    const context = drawing as unknown as OffscreenCanvasRenderingContext2D;
+    sword.drawHitsplats(context, 32);
+    expect(drawing.drawImage).not.toHaveBeenCalled();
+    expect(drawing.fillText).not.toHaveBeenCalled();
+    sword.drawHPBar(context, 32, 0);
+    expect(drawing.fillRect).toHaveBeenCalledWith(-35, -14, 56, 5);
+    expect(drawing.fillRect).toHaveBeenCalledWith(-22.5, -7, 45, 5);
+  } finally { trainer.dispose(); }
+});
+
 it.each([{ x: 1, landing: 31, accepted: true }, { x: 2, landing: 32, accepted: false }])("native harm projectiles landing on $landing respect the inclusive impact deadline", ({ x, landing, accepted }) => {
   Settings.readFromStorage();
   Settings.set({ playsAudio: false, playsAreaAudio: false, inputDelay: 0 });

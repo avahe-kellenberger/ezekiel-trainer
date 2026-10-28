@@ -108,6 +108,7 @@ export class ZekeSword extends Mob {
   override get collisionType(): CollisionType { return CollisionType.NONE; }
   override get lineOfSight(): LineOfSightMask { return LineOfSightMask.NONE; }
   override canBeAttacked(): boolean { return !this.launched && this.accumulated < ZEKE_RULES.swords.chargeMaximum.value; }
+  override drawHitsplat(): boolean { return false; }
   override movementStep(): void {}
   override attackStep(): void {}
   override queueStep(): void {
