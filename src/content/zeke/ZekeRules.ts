@@ -17,7 +17,7 @@ export const ZEKE_RULES = {
   },
   arena: {
     min: rule(1, "Research arena grid; map collision calibration remains pending."),
-    max: rule(9, "Research arena grid; the four corner player tiles are blocked."),
+    max: rule(9, "User-confirmed full 9x9 walkable floor, including all four corners."),
     width: rule(11, "One border tile surrounds the nine-tile research arena."),
     bossSpawn: rule(tile(4, 6), "Practice starting anchor in the SDK coordinate convention."),
     playerSpawn: rule(tile(4, 7), "Practice starting position adjacent to the boss."),

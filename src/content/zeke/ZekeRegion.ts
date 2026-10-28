@@ -60,8 +60,7 @@ export class ZekeRegion extends Region {
     for (let y = 0; y < this.height; y++) for (let x = 0; x < this.width; x++) {
       const { min, max } = ZEKE_RULES.arena;
       const boundary = x < min.value || x > max.value || y < min.value || y > max.value;
-      const corner = (x === min.value || x === max.value) && (y === min.value || y === max.value);
-      if (boundary || corner) this.addEntity(new InvisibleMovementBlocker(this, { x, y }));
+      if (boundary) this.addEntity(new InvisibleMovementBlocker(this, { x, y }));
     }
     Object.values(ZEKE_PRESENTATION.sounds).forEach((id) => SoundCache.preload(cacheSound(id)));
     this.mounted = { boss, player };

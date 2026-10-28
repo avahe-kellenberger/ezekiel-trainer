@@ -1,4 +1,4 @@
-import { InputController, Projectile, Settings, Trainer, TrainerInstance } from "osrs-sdk";
+import { InputController, Pathing, Projectile, Settings, Trainer, TrainerInstance } from "osrs-sdk";
 import { ZekeRegion } from "../../src/content/zeke/ZekeRegion";
 import type { ZekeConfig } from "../../src/content/zeke/ZekeRegion";
 import { Zeke } from "../../src/content/zeke/Zeke";
@@ -28,6 +28,30 @@ function practice(config: ZekeConfig = {}) {
 }
 
 describe("Zeke through the real SDK world", () => {
+  test.each([{ x: 1, y: 1 }, { x: 1, y: 9 }, { x: 9, y: 1 }, { x: 9, y: 9 }])("the tank can run to arena corner ($x, $y)", (corner) => {
+    const drill = practice({ invincible: true });
+    try {
+      drill.player.moveTo(corner.x, corner.y);
+      drill.tickTo(5);
+      expect(drill.player.location).toEqual(corner);
+    } finally { drill.dispose(); }
+  });
+
+  test("all 81 floor tiles and all corner crossing footprints are walkable, with the border blocked", () => {
+    const drill = practice();
+    try {
+      for (let x = 1; x <= 9; x++) for (let y = 1; y <= 9; y++) {
+        expect(Pathing.canTileBePathedTo(drill.region, x, y, 1), `floor ${x},${y}`).toBe(true);
+      }
+      for (const x of [1, 7]) for (const y of [3, 9]) {
+        expect(Pathing.canTileBePathedTo(drill.region, x, y, 3), `boss footprint ${x},${y}`).toBe(true);
+      }
+      for (let edge = 0; edge <= 10; edge++) for (const point of [{ x: edge, y: 0 }, { x: edge, y: 10 }, { x: 0, y: edge }, { x: 10, y: edge }]) {
+        expect(Pathing.canTileBePathedTo(drill.region, point.x, point.y, 1)).toBe(false);
+      }
+    } finally { drill.dispose(); }
+  });
+
   test("the encounter starts solo and restart replaces the tank without adding allies", () => {
     const drill = practice();
     try {
