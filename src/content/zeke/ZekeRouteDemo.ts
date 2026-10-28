@@ -4,15 +4,25 @@ import { ZEKE_RULES } from "./ZekeRules";
 import { ZEKE_ROUTE_SCENARIOS } from "./ZekeRoutePlans";
 import type { ZekeRouteClick, ZekeRouteId, ZekeRouteScenario } from "./ZekeRoutePlans";
 import type { ZekeRow } from "./Zeke";
+import { nextStarAt } from "./mechanics";
+import { validateZekeRouteActions } from "./ZekeRouteActions";
+import type { ZekeIssuedRouteAction, ZekeRecordedRouteCombat, ZekeRouteAction, ZekeRouteCombatEvent } from "./ZekeRouteActions";
 
-type RouteProgress = Readonly<{ scenario: ZekeRouteScenario; starOffset: TickSpan | null; lastClick: ZekeRouteClick | null; cycle: number }>;
-export type ZekeRouteDemoStatus =
+type RouteProgress = Readonly<{ scenario: ZekeRouteScenario; starOffset: TickSpan | null; cycle: number }>;
+type RouteState =
   | Readonly<{ kind: "disabled" }>
   | (RouteProgress & Readonly<{ kind: "practice" | "playing" }>)
   | (RouteProgress & Readonly<{ kind: "failed"; reason: string }>);
 
+export type ZekeRouteDemoStatus =
+  | Readonly<{ kind: "disabled" }>
+  | (Exclude<RouteState, Readonly<{ kind: "disabled" }>> & Readonly<{ lastClick: ZekeRouteClick | null; issuedActions: readonly ZekeIssuedRouteAction[]; combat: readonly ZekeRecordedRouteCombat[] }>);
+
 export class ZekeRouteDemo {
-  private status: ZekeRouteDemoStatus;
+  private status: RouteState;
+  private readonly issued: ZekeIssuedRouteAction[] = [];
+  private readonly combat: ZekeRecordedRouteCombat[] = [];
+  private dispatchedAt: Tick | null = null;
   private starStarted: Tick | null = null;
   private bossSwordHits = 0;
   private meleeAutos = 0;
@@ -20,19 +30,47 @@ export class ZekeRouteDemo {
 
   constructor(id: ZekeRouteId | null, autoplay: boolean) {
     const scenario = ZEKE_ROUTE_SCENARIOS.find((entry) => entry.id === id);
-    this.status = scenario ? { kind: autoplay ? "playing" : "practice", scenario, starOffset: null, lastClick: null, cycle: 1 } : { kind: "disabled" };
+    if (scenario) {
+      validateZekeRouteActions(scenario.openingActions);
+      validateZekeRouteActions(scenario.actions);
+    }
+    this.status = scenario ? { kind: autoplay ? "playing" : "practice", scenario, starOffset: null, cycle: 1 } : { kind: "disabled" };
   }
 
-  snapshot(): ZekeRouteDemoStatus { return this.status; }
+  private readState(): RouteState { return this.status; }
+
+  snapshot(): ZekeRouteDemoStatus {
+    if (this.status.kind === "disabled") return this.status;
+    const cycle = this.status.cycle;
+    const lastMove = [...this.issued].reverse().find((entry) => entry.cycle === cycle && entry.starOffset !== null && entry.action.kind === "move");
+    const lastClick: ZekeRouteClick | null = lastMove?.action.kind === "move" && lastMove.starOffset !== null ? { at: lastMove.starOffset, to: lastMove.action.to } : null;
+    return { ...this.status, lastClick, issuedActions: this.issuedActions(), combat: [...this.combat] };
+  }
+
+  issuedActions(): readonly ZekeIssuedRouteAction[] { return [...this.issued]; }
+
+  recordCombat(events: readonly ZekeRouteCombatEvent[]): void {
+    if (this.status.kind !== "playing" || this.starStarted === null) return;
+    for (const event of events) this.combat.push({ ...event, cycle: this.status.cycle, starOffset: span(event.tick - this.starStarted) });
+  }
+
+  recordIssued(at: Tick, action: ZekeRouteAction): void {
+    if (this.status.kind !== "playing") return;
+    if (this.issued.some((entry) => entry.tick === at)) throw new Error("A route issued more than one action on the same tick.");
+    this.issued.push({ tick: at, cycle: this.status.cycle, starOffset: this.starStarted === null ? null : span(at - this.starStarted), action });
+  }
 
   get pattern() { return this.status.kind === "disabled" ? null : this.status.scenario.pattern; }
 
-  beforeTick(at: Tick): ZekeRouteClick | null {
-    if (this.status.kind === "disabled" || this.status.kind === "failed" || this.starStarted === null) return null;
-    const starOffset = span(at - this.starStarted);
-    const click = this.status.kind === "playing" ? this.status.scenario.clicks.find((candidate) => candidate.at === starOffset) ?? null : null;
-    this.status = { ...this.status, starOffset, lastClick: click ?? this.status.lastClick };
-    return click;
+  beforeTick(at: Tick): ZekeRouteAction | null {
+    if (this.status.kind === "disabled" || this.status.kind === "failed") return null;
+    const starOffset = this.starStarted === null ? null : span(at - this.starStarted);
+    this.status = { ...this.status, starOffset };
+    if (this.status.kind !== "playing" || this.dispatchedAt === at) return null;
+    this.dispatchedAt = at;
+    const actions = this.starStarted === null ? this.status.scenario.openingActions : this.status.scenario.actions;
+    const offset = starOffset ?? span(at - 0);
+    return actions.find((candidate) => candidate.at === offset)?.action ?? null;
   }
 
   fail(reason: string): void {
@@ -51,14 +89,14 @@ export class ZekeRouteDemo {
           else this.meleeAutos++;
           break;
         case "star-tell": {
-          const state = this.snapshot();
+          const state = this.readState();
           if (state.kind === "disabled" || state.kind === "failed") break;
           const cycle: number = this.starStarted === null ? state.cycle : state.cycle + 1;
           this.starStarted = tick(row.tick);
           this.bossSwordHits = 0;
           this.meleeAutos = 0;
           this.checkedReset = false;
-          this.status = { ...state, starOffset: span(0), lastClick: null, cycle };
+          this.status = { ...state, starOffset: span(0), cycle };
           replenish = true;
           break;
         }
@@ -70,12 +108,12 @@ export class ZekeRouteDemo {
         default: { const unhandled: never = event; return unhandled; }
       }
     }
-    const state = this.snapshot();
+    const state = this.readState();
     if (state.kind === "disabled" || state.kind === "failed" || this.starStarted === null) return false;
     const starOffset = span(row.tick - this.starStarted);
     this.status = { ...state, starOffset };
-    const resetOffset = ZEKE_RULES.swords.chargeAfter.value + ZEKE_RULES.autos.recoveryStar.value - 1;
-    if (state.kind === "practice" || starOffset < resetOffset || this.checkedReset) return replenish;
+    const nextStar = row.phase.kind === "recovery" ? nextStarAt(row.phase) : null;
+    if (state.kind === "practice" || nextStar === null || row.tick < nextStar - 1 || this.checkedReset) return replenish;
     this.checkedReset = true;
     const homeBoss = ZEKE_RULES.arena.bossSpawn.value;
     const homeTank = ZEKE_RULES.arena.playerSpawn.value;
@@ -85,7 +123,19 @@ export class ZekeRouteDemo {
       this.fail(`Expected ${state.scenario.expectedHits} boss sword hits; observed ${this.bossSwordHits}.`);
     } else if (this.meleeAutos !== ZEKE_RULES.autos.count.value * 2) {
       this.fail("The route did not contain all four melee attacks.");
+    } else if (!this.combatComplete(state.scenario, state.cycle)) {
+      this.fail("The scheduled sword casts, landings, or return to scythe did not complete.");
     } else replenish = true;
     return replenish;
+  }
+
+  private combatComplete(scenario: ZekeRouteScenario, cycle: number): boolean {
+    const events = this.combat.filter((event) => event.cycle === cycle);
+    const casts = events.filter((event) => event.kind === "cast");
+    const targets = scenario.actions.flatMap(({ action }) => action.kind === "attack-sword" ? [action.index] : []);
+    const landed = events.filter((event) => event.kind === "sword-hit");
+    return casts.length === scenario.expectedCasts && new Set(casts.map((event) => event.swordIndex)).size === targets.length
+      && targets.every((index) => casts.some((event) => event.swordIndex === index) && landed.some((event) => event.swordIndex === index))
+      && events.some((event) => event.kind === "scythe-hit");
   }
 }

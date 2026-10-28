@@ -1,4 +1,4 @@
-import { CardinalDirection, InvisibleMovementBlocker, Region, SoundCache, cacheSound } from "osrs-sdk";
+import { CardinalDirection, InvisibleMovementBlocker, Region, ScytheOfVitur, SoundCache, cacheSound } from "osrs-sdk";
 import type { Player } from "osrs-sdk";
 import { tick, tile } from "../../sim/brands";
 import type { Tick } from "../../sim/brands";
@@ -10,6 +10,8 @@ import { ZekePlayer } from "./ZekePlayer";
 import { ZekeArena } from "./hazards";
 import { inDodgeWindow } from "./mechanics";
 import { ZekeRouteDemo } from "./ZekeRouteDemo";
+import { executeZekeRouteAction } from "./ZekeRouteActions";
+import type { ZekeRouteCombatEvent } from "./ZekeRouteActions";
 import type { ZekeRouteDemoStatus } from "./ZekeRouteDemo";
 import type { ZekeRouteId } from "./ZekeRoutePlans";
 
@@ -62,7 +64,7 @@ export class ZekeRegion extends Region {
       const at = tick(state.tick + 1);
       return inDodgeWindow(state, at, tile(location.x, location.y)) ? at : null;
     });
-    dressZekePlayer(player, this.config.setup ?? "melee");
+    dressZekePlayer(player, this.selectedRoute !== null && this.routeAutoplay ? "melee" : this.config.setup ?? "melee");
     if (this.selectedRoute !== null) {
       player.prayerController.findPrayerByName("Protect from Melee").toggle(player);
       player.prayerController.findPrayerByName("Piety").toggle(player);
@@ -99,6 +101,24 @@ export class ZekeRegion extends Region {
     if (!this.mounted) return;
     const { boss, player } = this.mounted;
     boss.recordTick();
+    const combat: ZekeRouteCombatEvent[] = [];
+    const at = tick(boss.encounterTick);
+    boss.encounter.swords.forEach((state, index) => {
+      const sword = boss.swordTarget(index);
+      if (!sword) return;
+      for (const shot of sword.incomingProjectiles) {
+        if (shot.from === player && shot.age === 0 && shot.attackStyle === "magic") combat.push({ kind: "cast", tick: at, swordIndex: index, landingAt: tick(at + shot.totalDelay), distance: shot.distance, damage: shot.damage });
+      }
+      for (const hit of sword.hitsThisTick) {
+        if (hit.from === player && hit.attackStyle === "magic" && at <= state.impactAt) combat.push({ kind: "sword-hit", tick: at, swordIndex: index, damage: hit.damage });
+      }
+    });
+    if (player.equipment.weapon instanceof ScytheOfVitur) {
+      for (const hit of boss.hitsThisTick) {
+        if (hit.from === player && hit.attackStyle === "crush") combat.push({ kind: "scythe-hit", tick: at, damage: hit.damage });
+      }
+    }
+    this.routeDemo.recordCombat(combat);
     const row = boss.rows[boss.rows.length - 1];
     if (row && this.routeDemo.afterTick(row, tile(boss.location.x, boss.location.y), tile(player.location.x, player.location.y), boss.activeStepUnder)) {
       boss.currentStats = { ...boss.stats };
@@ -149,8 +169,15 @@ export class ZekeRegion extends Region {
     this.players.forEach((player) => {
       if (player instanceof ZekePlayer) player.beginEncounterTick(at);
     });
-    const click = this.routeDemo.beforeTick(at);
-    if (click) this.mounted.player.moveTo(click.to.x, click.to.y, "run-setting");
+    const action = this.routeDemo.beforeTick(at);
+    if (action) {
+      const result = executeZekeRouteAction(action, this.mounted.player, this.mounted.boss);
+      switch (result.kind) {
+        case "issued": this.routeDemo.recordIssued(at, action); break;
+        case "failed": this.routeDemo.fail(result.reason); break;
+        default: { const unhandled: never = result; return unhandled; }
+      }
+    }
   }
 
   snapshot() {
@@ -174,6 +201,7 @@ export class ZekeRegion extends Region {
       },
       party: this.players.filter((participant): participant is ZekePlayer => participant instanceof ZekePlayer).map((participant) => ({ id: participant.participantId, hp: participant.currentStats.hitpoint, tile: { ...participant.location } })),
       autos: boss.rows.flatMap((row) => row.events).filter((event) => event.kind === "auto").length,
+      routeDemo: this.routeDemoSnapshot(),
       stars: boss.encounter.stars,
       swords: boss.encounter.swords,
     };

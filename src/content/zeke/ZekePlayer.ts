@@ -7,6 +7,7 @@ import { ZEKE_PRESENTATION } from "./assets";
 
 export class ZekePlayer extends Player {
   private pendingDodge: Readonly<{ tick: Tick; to: Location; steps: number; successful: boolean }> | null = null;
+  private awaitingDodgeConfirmation: Tick | null = null;
   private dodgeTravel: Readonly<{ from: Location; to: Location; startedAt: ClientCycles; duration: ClientCycles }> | null = null;
   private castPose: number | null = null;
   private castSpeed: number | null = null;
@@ -23,6 +24,7 @@ export class ZekePlayer extends Player {
 
   override dead(): void {
     this.pendingDodge = null;
+    this.awaitingDodgeConfirmation = null;
     this.dodgeTravel = null;
     super.dead();
   }
@@ -75,6 +77,14 @@ export class ZekePlayer extends Player {
 
   confirmSuccessfulDodge(at: Tick): void {
     if (this.pendingDodge?.tick === at) this.pendingDodge = { ...this.pendingDodge, successful: true };
+    else if (this.awaitingDodgeConfirmation === at) {
+      this.awaitingDodgeConfirmation = null;
+      this.restoreDodgeSpecial();
+    }
+  }
+
+  private restoreDodgeSpecial(): void {
+    if (this.currentStats.hitpoint > 0 && this.dying < 0) this.currentStats.specialAttack = Math.min(this.stats.specialAttack, this.currentStats.specialAttack + ZEKE_RULES.dodge.specialRestore.value);
   }
 
   override clientTick(tickPercent: number, tickTimestamp = window.performance.now()): void {
@@ -98,12 +108,14 @@ export class ZekePlayer extends Player {
 
   override setLocation(location: Location): void {
     this.pendingDodge = null;
+    this.awaitingDodgeConfirmation = null;
     this.dodgeTravel = null;
     super.setLocation(location);
   }
 
   beginEncounterTick(at: Tick): void {
     if (this.pendingDodge && this.pendingDodge.tick !== at) this.setLocation(this.location);
+    if (this.awaitingDodgeConfirmation !== null && at > this.awaitingDodgeConfirmation + ZEKE_RULES.swords.impactAfter.value - ZEKE_RULES.swords.chargeAfter.value) this.awaitingDodgeConfirmation = null;
   }
 
   override movementStep(): void {
@@ -133,7 +145,8 @@ export class ZekePlayer extends Player {
     this.location = { ...dodge.to };
     this.region.setTileCollisionFlags(this.location.x, this.location.y, this.size);
     this.region.refreshUnitChunk(this);
-    if (dodge.successful) this.currentStats.specialAttack = Math.min(this.stats.specialAttack, this.currentStats.specialAttack + ZEKE_RULES.dodge.specialRestore.value);
+    if (dodge.successful) this.restoreDodgeSpecial();
+    else this.awaitingDodgeConfirmation = dodge.tick;
   }
 
   override attack(): boolean {

@@ -1,79 +1,56 @@
-import { Settings, TrainerInstance } from "osrs-sdk";
+import { Random, Settings, TrainerInstance } from "osrs-sdk";
 import { Zeke } from "../../src/content/zeke/Zeke";
+import { ZekePlayer } from "../../src/content/zeke/ZekePlayer";
 import { ZekeRegion } from "../../src/content/zeke/ZekeRegion";
 import { ZEKE_ROUTE_SCENARIOS } from "../../src/content/zeke/ZekeRoutePlans";
 import type { ZekeRouteScenario } from "../../src/content/zeke/ZekeRoutePlans";
-import { ZEKE_RULES } from "../../src/content/zeke/ZekeRules";
-import { span } from "../../src/sim/brands";
 
-// Replay proposed click times with the real SDK. Preserve the ordered destinations,
-// sword-center alignment, every auto, hazard avoidance and the home reset.
-function trial(scenario: ZekeRouteScenario, clicks = scenario.clicks) {
-  const region = new ZekeRegion({ seed: 1, routeDemo: scenario.id, invincible: true });
-  const trainer = new TrainerInstance(region);
+function nativeCross(scenario: ZekeRouteScenario, lateFinalAttack: boolean) {
+  Settings.readFromStorage();
+  Settings.set({ playsAudio: false, playsAreaAudio: false, inputDelay: 0 });
+  const region = new ZekeRegion({ seed: 1, routeDemo: scenario.id, routeAutoplay: true });
+  const trainer = new TrainerInstance(region, { readyTimer: 0 });
   trainer.mount(document.createElement("canvas"), document.createElement("div"));
   const boss = region.primaryBoss;
   const player = region.players[0];
-  if (!(boss instanceof Zeke)) throw new Error("Missing native boss.");
-  const star = ZEKE_RULES.autos.openingStar.value;
-  const flight = ZEKE_RULES.swords.chargeAfter.value;
-  const reset = flight + ZEKE_RULES.autos.recoveryStar.value - 1;
-  const arrivals: number[] = [];
-  let safe = true;
+  if (!(boss instanceof Zeke) || !(player instanceof ZekePlayer)) throw new Error("Missing native actors.");
+  let impactSwordIds: readonly number[] = [];
+  const rolls = vi.spyOn(Random, "get").mockReturnValue(0.5);
   try {
-    for (let at = 1; at <= star + reset; at++) {
-      const offset = at - star;
-      const click = clicks.find((entry) => entry.at === offset);
-      if (click) player.moveTo(click.to.x, click.to.y, "run-setting");
+    for (let at = 1; at <= 52; at++) {
+      if (lateFinalAttack && at === 29) player.attackDelay = 2;
       region.world.tickWorld();
-      const row = boss.rows.at(-1);
-      if (!row) throw new Error("Missing native tick.");
-      if (boss.activeStepUnder || row.events.some((event) => event.kind === "star-hit" || event.kind === "sword-hit-player" || event.kind === "boss-heal" || event.kind === "swords-missed" || (event.kind === "auto" && event.style === "magic"))) {
-        safe = false;
-        break;
-      }
-      for (let index = 0; index < clicks.length; index++) {
-        const goal = clicks[index];
-        if (arrivals[index] === undefined && offset >= goal.at && player.location.x === goal.to.x && player.location.y === goal.to.y) arrivals[index] = offset;
-        if (offset === (clicks[index + 1]?.at ?? reset + 1) - 1 && arrivals[index] === undefined) safe = false;
-      }
-      if (offset === flight) {
-        const pattern = scenario.pattern;
-        const center = { x: boss.location.x + 1, y: boss.location.y - 1 };
-        switch (pattern.kind) {
-          case "cross": safe &&= center.x === pattern.column && center.y === pattern.row; break;
-          case "parallel": safe &&= (pattern.axis === "x" ? center.y : center.x) === ZEKE_RULES.swords.lanes.value[0]; break;
-          case "two-rows": safe &&= ZEKE_RULES.swords.twoRows.value.includes(center.y); break;
-          default: { const unhandled: never = pattern; throw new Error(String(unhandled)); }
-        }
-      }
-      if (!safe) break;
+      if (at === 31) impactSwordIds = boss.encounter.swords.map((sword) => sword.id);
     }
-    const events = boss.rows.flatMap((row) => row.events);
-    const bossHome = ZEKE_RULES.arena.bossSpawn.value;
-    const tankHome = ZEKE_RULES.arena.playerSpawn.value;
-    safe &&= boss.location.x === bossHome.x && boss.location.y === bossHome.y && player.location.x === tankHome.x && player.location.y === tankHome.y;
-    safe &&= events.filter((event) => event.kind === "auto").length === ZEKE_RULES.autos.count.value * 3;
-    safe &&= events.filter((event) => event.kind === "sword-hit-boss").length === scenario.expectedHits;
-    return { safe, arrivals };
-  } finally { trainer.dispose(); }
+    return { status: region.routeDemoSnapshot(), rows: boss.rows, impactSwordIds };
+  } finally { rolls.mockRestore(); trainer.dispose(); }
 }
 
-describe("route waypoint timing", () => {
-  test.each(ZEKE_ROUTE_SCENARIOS)("$id has no earlier individual click that preserves the rules and arrival times", (scenario) => {
-    Settings.readFromStorage();
-    Settings.set({ playsAudio: false, playsAreaAudio: false, inputDelay: 0 });
-    const baseline = trial(scenario);
-    expect(baseline.safe).toBe(true);
-    expect(baseline.arrivals).toHaveLength(scenario.clicks.length);
-    for (let index = 0; index < scenario.clicks.length; index++) {
-      const previous = scenario.clicks[index - 1]?.at ?? 0;
-      for (let earlier = previous + 1; earlier < scenario.clicks[index].at; earlier++) {
-        const candidate = scenario.clicks.map((click, candidateIndex) => candidateIndex === index ? { ...click, at: span(earlier) } : click);
-        const result = trial(scenario, candidate);
-        const delaysAnotherWaypoint = baseline.arrivals.some((arrival, goal) => result.arrivals[goal] === undefined || result.arrivals[goal] > arrival);
-        expect(result.safe && !delaysAnotherWaypoint, `Click ${index + 1} could move from +${scenario.clicks[index].at} to +${earlier}`).toBe(false);
-      }
-    }
+describe("native sword deadline", () => {
+  const crosses = ZEKE_ROUTE_SCENARIOS.filter((scenario) => scenario.pattern.kind === "cross");
+
+  test.each(crosses)("$id applies its fourth native projectile on the sixteenth displayed sword tick", (scenario) => {
+    const { status, rows, impactSwordIds } = nativeCross(scenario, false);
+    expect(status.kind).toBe("playing");
+    if (status.kind === "disabled") throw new Error("Native route was disabled.");
+    const casts = status.combat.filter((event) => event.kind === "cast");
+    expect(casts.map((event) => event.starOffset + 1)).toEqual([2, 6, 10, 14]);
+    const final = casts.at(-1);
+    if (!final) throw new Error("Missing fourth native cast.");
+    expect(final.landingAt).toBe(31);
+    expect(status.combat).toContainEqual(expect.objectContaining({ kind: "sword-hit", tick: 31, starOffset: 15, swordIndex: final.swordIndex }));
+    expect(rows.find((row) => row.tick === 30)?.events).toContainEqual(expect.objectContaining({ kind: "sword-charge" }));
+    const impacts = rows.find((row) => row.tick === 31)?.events.filter((event) => event.kind === "sword-hit-boss");
+    expect(impacts).toHaveLength(4);
+    expect(final.damage).toBeGreaterThan(0);
+    expect(impacts).toContainEqual(expect.objectContaining({ swordId: impactSwordIds[final.swordIndex], chargeDamage: final.damage }));
+  });
+
+  test.each(crosses)("$id fails completion if the final native attack is delayed one tick", (scenario) => {
+    const { status } = nativeCross(scenario, true);
+    expect(status).toMatchObject({ kind: "failed", reason: expect.stringContaining("casts, landings, or return to scythe") });
+    if (status.kind === "disabled") throw new Error("Native route was disabled.");
+    expect(status.combat.filter((event) => event.kind === "cast")).toHaveLength(3);
+    expect(status.combat.filter((event) => event.kind === "sword-hit")).toHaveLength(3);
   });
 });

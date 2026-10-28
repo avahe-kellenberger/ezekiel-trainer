@@ -84,10 +84,8 @@ export class ZekeSword extends Mob {
   private previous: Readonly<{ x: number; y: number }>;
   private launched = false;
   private accumulated = 0;
-  private beforeQueue = 0;
-  private queuedWorldTick = -1;
 
-  constructor(region: Region, at: Tile, private readonly direction: Readonly<{ axis: "x" | "y"; direction: 1 | -1; chargeAt: Tick }>, private readonly encounterTick: () => Tick) {
+  constructor(region: Region, at: Tile, private readonly direction: Readonly<{ axis: "x" | "y"; direction: 1 | -1; chargeAt: Tick; impactAt: Tick }>, private readonly encounterTick: () => Tick) {
     super(region, { x: at.x - 1, y: at.y + 1 });
     this.previous = { ...this.location };
     this.autoRetaliate = false;
@@ -100,7 +98,7 @@ export class ZekeSword extends Mob {
   }
 
   override setStats(): void {
-    this.stats = { attack: 1, strength: 1, defence: ZEKE_RULES.swords.defence.value, magic: ZEKE_RULES.swords.magic.value, range: 1, hitpoint: ZEKE_RULES.swords.chargeThreshold.value };
+    this.stats = { attack: 1, strength: 1, defence: ZEKE_RULES.swords.defence.value, magic: ZEKE_RULES.swords.magic.value, range: 1, hitpoint: ZEKE_RULES.swords.chargeMaximum.value };
     this.currentStats = { ...this.stats };
   }
 
@@ -109,23 +107,21 @@ export class ZekeSword extends Mob {
   override get consumesSpace(): boolean { return false; }
   override get collisionType(): CollisionType { return CollisionType.NONE; }
   override get lineOfSight(): LineOfSightMask { return LineOfSightMask.NONE; }
-  override canBeAttacked(): boolean { return !this.launched && this.accumulated < ZEKE_RULES.swords.chargeThreshold.value; }
+  override canBeAttacked(): boolean { return !this.launched && this.accumulated < ZEKE_RULES.swords.chargeMaximum.value; }
   override movementStep(): void {}
   override attackStep(): void {}
   override queueStep(): void {
-    this.beforeQueue = this.accumulated;
-    this.queuedWorldTick = this.region.world.globalTickCounter;
     const before = this.currentStats.hitpoint;
     super.queueStep();
     const damage = before - this.currentStats.hitpoint;
-    if (damage > 0) {
-      this.accumulated = Math.min(ZEKE_RULES.swords.chargeThreshold.value, this.accumulated + damage);
+    // Swords queue before the boss advances its encounter clock for this tick.
+    if (damage > 0 && this.encounterTick() < this.direction.impactAt) {
+      this.accumulated = Math.min(ZEKE_RULES.swords.chargeMaximum.value, this.accumulated + damage);
     }
     this.currentStats.hitpoint = this.stats.hitpoint;
   }
 
   get chargeDamage(): number { return this.accumulated; }
-  get chargeBeforeTick(): number { return this.queuedWorldTick === this.region.world.globalTickCounter ? this.beforeQueue : this.accumulated; }
 
   override addProjectile(projectile: Projectile): void {
     if (projectile.attackStyle !== "magic") projectile.damage = 0;
@@ -152,7 +148,7 @@ export class ZekeSword extends Mob {
       context.fillStyle = charge.background;
       context.fillRect(-charge.width / 2, chargeY, charge.width, charge.height);
       context.fillStyle = charge.foreground;
-      context.fillRect(-charge.width / 2, chargeY, Math.floor(charge.width * this.accumulated / ZEKE_RULES.swords.chargeThreshold.value), charge.height);
+      context.fillRect(-charge.width / 2, chargeY, Math.floor(charge.width * this.accumulated / ZEKE_RULES.swords.chargeMaximum.value), charge.height);
     }
     const elapsed = this.encounterTick() + this.region.world.tickPercent - (this.direction.chargeAt - ZEKE_RULES.swords.chargeAfter.value);
     if (elapsed < 0 || elapsed >= ZEKE_RULES.swords.countdownDuration.value) return;

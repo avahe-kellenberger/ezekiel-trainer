@@ -155,7 +155,7 @@ describe("Zeke through the real SDK world", () => {
     } finally { drill.dispose(); }
   });
 
-  test("native sword projectiles fill an eighty-point charge without killing the sword", () => {
+  test("native sword projectiles fill a hundred-percent charge without killing the sword", () => {
     const drill = practice({ invincible: true });
     try {
       drill.tickTo(ZEKE_RULES.autos.openingStar.value);
@@ -166,8 +166,8 @@ describe("Zeke through the real SDK world", () => {
       expect(sword.chargeDamage).toBe(54);
       sword.addProjectile(new Projectile(null, 50, drill.player, sword, "magic", { setDelay: 1 }));
       drill.tickTo(ZEKE_RULES.autos.openingStar.value + 2);
-      expect(sword.chargeDamage).toBe(80);
-      expect(sword.currentStats.hitpoint).toBe(80);
+      expect(sword.chargeDamage).toBe(100);
+      expect(sword.currentStats.hitpoint).toBe(100);
       expect(sword.isDying()).toBe(false);
       expect(sword.canBeAttacked()).toBe(false);
     } finally { drill.dispose(); }
@@ -179,24 +179,24 @@ describe("Zeke through the real SDK world", () => {
       const animations: { at: number; id: number }[] = [];
       const play = vi.spyOn(drill.boss, "playAnimation");
       play.mockImplementation(async (id) => { animations.push({ at: drill.boss.encounterTick, id }); });
-      drill.tickTo(30);
-      expect(drill.boss.encounter.phase).toEqual({ kind: "recovery", recovery: "weaken", started: 30, stunnedUntil: 40 });
+      drill.tickTo(31);
+      expect(drill.boss.encounter.phase).toEqual({ kind: "recovery", recovery: "weaken", started: 31, stunnedUntil: 41 });
       const anchor = { ...drill.boss.location };
-      drill.tickTo(37);
-      expect(drill.boss.idlePoseId).toBe(ZEKE_PRESENTATION.weaken);
       drill.tickTo(38);
-      expect(animations.filter(({ id }) => id === ZEKE_PRESENTATION.weakenEnd)).toEqual([{ at: 38, id: ZEKE_PRESENTATION.weakenEnd }]);
+      expect(drill.boss.idlePoseId).toBe(ZEKE_PRESENTATION.weaken);
+      drill.tickTo(39);
+      expect(animations.filter(({ id }) => id === ZEKE_PRESENTATION.weakenEnd)).toEqual([{ at: 39, id: ZEKE_PRESENTATION.weakenEnd }]);
       expect(drill.boss.idlePoseId).toBe(ZEKE_PRESENTATION.idle);
       drill.player.setLocation({ x: anchor.x + 1, y: anchor.y - 1 });
       drill.player.setAggro(drill.boss);
-      drill.tickTo(39);
+      drill.tickTo(40);
       expect(drill.boss.location).toEqual(anchor);
       drill.player.setLocation({ x: anchor.x + 1, y: anchor.y - 1 });
-      drill.tickTo(40);
+      drill.tickTo(41);
       expect(drill.boss.canMove()).toBe(true);
-      drill.tickTo(52);
-      expect(drill.boss.rows.filter((row) => row.tick > 30 && row.events.some((event) => event.kind === "auto")).map((row) => row.tick)).toEqual([42, 47]);
-      expect(drill.boss.rows.filter((row) => row.tick > 30 && row.events.some((event) => event.kind === "star-tell")).map((row) => row.tick)).toEqual([52]);
+      drill.tickTo(53);
+      expect(drill.boss.rows.filter((row) => row.tick > 31 && row.events.some((event) => event.kind === "auto")).map((row) => row.tick)).toEqual([43, 48]);
+      expect(drill.boss.rows.filter((row) => row.tick > 31 && row.events.some((event) => event.kind === "star-tell")).map((row) => row.tick)).toEqual([53]);
       expect(animations.filter(({ id }) => id === ZEKE_PRESENTATION.weakenEnd)).toHaveLength(1);
       play.mockRestore();
     } finally { drill.dispose(); }
@@ -205,14 +205,14 @@ describe("Zeke through the real SDK world", () => {
   test("sword impact applies HP and native hitsplats on the weaken tick without advancing other projectiles", () => {
     const drill = practice({ invincible: true });
     try {
-      drill.tickTo(29);
+      drill.tickTo(30);
       const health = drill.boss.currentStats.hitpoint;
       const dueNow = new Projectile(null, 7, drill.player, drill.boss, "magic", { setDelay: 1 });
       const later = new Projectile(null, 11, drill.player, drill.boss, "magic", { setDelay: 3 });
       drill.boss.addProjectile(dueNow);
       drill.boss.addProjectile(later);
-      drill.tickTo(30);
-      expect(drill.boss.encounter.phase).toEqual({ kind: "recovery", recovery: "weaken", started: 30, stunnedUntil: 40 });
+      drill.tickTo(31);
+      expect(drill.boss.encounter.phase).toEqual({ kind: "recovery", recovery: "weaken", started: 31, stunnedUntil: 41 });
       const landed = drill.boss.hitsThisTick;
       expect(landed.map((hit) => hit.attackStyle)).toEqual(["magic", "typeless", "typeless"]);
       expect(landed[0].damage).toBe(7);
@@ -220,11 +220,11 @@ describe("Zeke through the real SDK world", () => {
       expect(drill.boss.incomingProjectiles.filter((hit) => hit.attackStyle === "typeless" && hit.remainingDelay === 0)).toHaveLength(2);
       expect(later.remainingDelay).toBe(2);
       const afterImpact = drill.boss.currentStats.hitpoint;
-      drill.tickTo(31);
+      drill.tickTo(32);
       expect(drill.boss.currentStats.hitpoint).toBe(afterImpact);
       expect(drill.boss.hitsThisTick).toEqual([]);
       expect(later.remainingDelay).toBe(1);
-      drill.tickTo(32);
+      drill.tickTo(33);
       expect(drill.boss.currentStats.hitpoint).toBe(afterImpact - 11);
       expect(drill.boss.hitsThisTick).toEqual([{ damage: 11, attackStyle: "magic", from: drill.player }]);
     } finally { drill.dispose(); }
@@ -340,6 +340,9 @@ describe("Zeke through the real SDK world", () => {
       drill.tickTo(30);
       expect(drill.boss.location).toEqual({ x: 4, y: 6 });
       expect(drill.player.location).toEqual({ x: 9, y: 8 });
+      expect(drill.boss.encounter.phase.kind).toBe("star");
+      drill.tickTo(31);
+      expect(drill.boss.location).toEqual({ x: 4, y: 6 });
       expect(drill.boss.rows.at(-1)?.events.filter((event) => event.kind === "sword-hit-boss")).toHaveLength(2);
       expect(drill.boss.rows.at(-1)?.events.filter((event) => event.kind === "sword-hit-player")).toEqual([]);
       expect(drill.boss.encounter.phase.kind).toBe("recovery");
@@ -361,7 +364,7 @@ describe("Zeke through the real SDK world", () => {
     } finally { drill.dispose(); }
   });
 
-  test("a missed sword volley lets the boss react to the dodge on the following tick", () => {
+  test("a missed sword volley holds the boss through impact before resuming follow", () => {
     const drill = practice({ invincible: true });
     try {
       drill.tickTo(29);
@@ -373,6 +376,8 @@ describe("Zeke through the real SDK world", () => {
       expect(drill.boss.location).toEqual({ x: 4, y: 5 });
       expect(drill.boss.rows.at(-1)?.events.filter((event) => event.kind === "sword-hit-boss")).toEqual([]);
       drill.tickTo(31);
+      expect(drill.boss.location).toEqual({ x: 4, y: 5 });
+      drill.tickTo(32);
       expect(drill.boss.location).not.toEqual({ x: 4, y: 5 });
     } finally { drill.dispose(); }
   });

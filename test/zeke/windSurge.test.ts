@@ -6,6 +6,7 @@ import { WindSurge } from "../../src/content/zeke/WindSurge";
 import { HarmonisedNightmareStaff } from "../../src/content/zeke/HarmonisedNightmareStaff";
 import { WindSurgeControls } from "../../src/content/zeke/WindSurgeControls";
 import { ZEKE_RULES } from "../../src/content/zeke/ZekeRules";
+import { Zeke } from "../../src/content/zeke/Zeke";
 
 function equipStaff(player: Player): void {
   const index = player.inventory.findIndex((item) => item instanceof HarmonisedNightmareStaff);
@@ -17,6 +18,49 @@ function equipStaff(player: Player): void {
   inventory.panelClickDown(x, y);
   inventory.panelClickUp(x, y);
 }
+
+it.each([{ x: 1, landing: 31, accepted: true }, { x: 2, landing: 32, accepted: false }])("native harm projectiles landing on $landing respect the inclusive impact deadline", ({ x, landing, accepted }) => {
+  Settings.readFromStorage();
+  Settings.set({ playsAudio: false, playsAreaAudio: false, inputDelay: 0 });
+  const region = new ZekeRegion({ seed: 1, invincible: true });
+  const trainer = new TrainerInstance(region);
+  const player = trainer.mount(document.createElement("canvas"), document.createElement("div"));
+  const boss = region.primaryBoss;
+  if (!(boss instanceof Zeke)) throw new Error("No native boss spawned.");
+  const random = vi.spyOn(Random, "get").mockReturnValue(0.999999);
+  const tickTo = (at: number) => { while (boss.encounterTick < at) region.world.tickWorld(); };
+  try {
+    region.world.tickWorld(region.world.getReadyTimer - 1);
+    equipStaff(player);
+    tickTo(28);
+    const sword = boss.swordTarget(0);
+    if (!sword) throw new Error("No native first sword spawned.");
+    expect(boss.swordTarget(-1)).toBeNull();
+    expect(boss.swordTarget(4)).toBeNull();
+    player.setLocation({ x, y: 5 });
+    InputController.controller.queueAction(() => Trainer.clickController.playerAttackClick(sword));
+    tickTo(29);
+    const projectile = sword.incomingProjectiles.find((hit) => hit.from === player);
+    if (!projectile) throw new Error("Harm staff did not cast.");
+    expect(player.attackDelay).toBe(4);
+    expect(projectile.totalDelay).toBe(landing - 29);
+    expect(sword.chargeDamage).toBe(0);
+    tickTo(30);
+    expect(sword.canBeAttacked()).toBe(false);
+    expect(boss.encounter.phase.kind).toBe("star");
+    boss.setLocation({ x: 4, y: 6 });
+    tickTo(31);
+    const hit = boss.rows.at(-1)?.events.find((event) => event.kind === "sword-hit-boss" && event.swordId === boss.encounter.swords[0].id);
+    expect(hit).toMatchObject({ chargeDamage: accepted ? 80 : 0 });
+    expect(boss.encounter.phase).toMatchObject({ kind: "recovery", started: 31 });
+    tickTo(landing);
+    expect(sword.hitsThisTick).toContainEqual({ damage: projectile.damage, attackStyle: "magic", from: player });
+    expect(projectile.damage).toBe(80);
+    expect(sword.chargeDamage).toBe(accepted ? 80 : 0);
+    tickTo(33);
+    expect(boss.rows.flatMap((row) => row.events).filter((event) => event.kind === "sword-hit-boss")).toHaveLength(2);
+  } finally { random.mockRestore(); trainer.dispose(); }
+});
 
 it("a normal sword click with the harmonised staff autocasts single-target Wind Surge every four ticks", () => {
   Settings.readFromStorage();
@@ -53,27 +97,33 @@ it("a normal sword click with the harmonised staff autocasts single-target Wind 
     region.world.tickWorld();
     expect(animations.mock.calls.filter(([id]) => id === 7855)).toHaveLength(firstCastCount + 1);
     expect(player.attackDelay).toBe(4);
-    expect(sword.chargeDamage).toBeGreaterThan(0);
-    expect(sword.chargeDamage).toBeLessThan(80);
+    expect(sword.chargeDamage).toBe(80);
     for (const other of swords.filter((other) => other !== sword)) expect(other.chargeDamage).toBe(0);
     const played = sounds.mock.calls.map(([sound]) => sound.src);
     expect(played).not.toContain(cacheSound(106));
     expect(played).not.toContain(cacheSound(102));
     expect(played.filter((src) => src === cacheSound(4028))).toHaveLength(2);
     expect(played.filter((src) => src === cacheSound(4027))).toHaveLength(1);
+    region.world.tickWorld(4);
+    expect(sword.chargeDamage).toBe(100);
+    expect(sword.canBeAttacked()).toBe(false);
+    expect(sword.isDying()).toBe(false);
   } finally {
     Settings.set({ playsAudio: false });
     random.mockRestore(); sounds.mockRestore(); animations.mockRestore(); trainer.dispose();
   }
 });
 
-it.each(["melee", "magic"])("Wind Surge selected by its label casts with the equipped %s gear", (gear) => {
+it.each([
+  { gear: "melee", roll: 0 }, { gear: "melee", roll: 0.999999 },
+  { gear: "magic", roll: 0 }, { gear: "magic", roll: 0.999999 },
+])("Wind Surge adds eighty percent charge with $gear gear and damage roll $roll", ({ gear, roll }) => {
   Settings.readFromStorage();
   Settings.set({ playsAudio: false, playsAreaAudio: false, inputDelay: 0 });
   const region = new ZekeRegion({ seed: 1, invincible: true });
   const trainer = new TrainerInstance(region);
   const player = trainer.mount(document.createElement("canvas"), document.createElement("div"));
-  const random = vi.spyOn(Random, "get").mockReturnValue(0.999999);
+  const random = vi.spyOn(Random, "get").mockReturnValue(roll);
   try {
     region.world.tickWorld(region.world.getReadyTimer - 1);
     for (let tick = 0; tick < ZEKE_RULES.autos.openingStar.value; tick++) region.world.tickWorld();
@@ -105,8 +155,7 @@ it.each(["melee", "magic"])("Wind Surge selected by its label casts with the equ
     expect(player.manualSpellCastSelection).toBeNull();
     expect(player.attackDelay).toBe(5);
     for (let tick = 0; tick < 5; tick++) region.world.tickWorld();
-    expect(sword.chargeDamage).toBeGreaterThan(0);
-    expect(sword.chargeDamage).toBeLessThan(80);
+    expect(sword.chargeDamage).toBe(80);
     expect(sword.isDying()).toBe(false);
   } finally {
     random.mockRestore();

@@ -17,21 +17,28 @@ export type EncounterPhase =
   | Readonly<{ kind: "ended"; reason: "boss-dead" }>;
 
 export type StarVisual = Readonly<{ kind: "star"; delay: ClientCycles }> | Readonly<{ kind: "lightning" }>;
-export type StarHazard = Readonly<{ id: number; tile: Tile; activeFrom: Tick; expiresAt: Tick; visual: StarVisual }>;
+export type StarHazard = Readonly<{ id: number; tile: Tile; activeFrom: Tick; expiresAt: Tick; visual: StarVisual | null }>;
 export type SwordHazard = Readonly<{
   id: number;
   tile: Tile;
+  launchFrom: Tile;
   axis: "x" | "y";
   direction: -1 | 1;
   lane: number;
   spawnedAt: Tick;
   chargeAt: Tick;
-  status: "charging" | "flying" | "spent";
+  impactAt: Tick;
+  dodgeLandings: readonly Participant[];
   chargeDamage: number;
   charged: boolean;
   hitBoss: boolean;
   hitPlayers: readonly string[];
-}>;
+}> & (
+  | Readonly<{ status: "charging" }>
+  | Readonly<{ status: "flying" }>
+  | Readonly<{ status: "impacted" }>
+  | Readonly<{ status: "spent" }>
+);
 
 export type EncounterState = Readonly<{
   tick: Tick;
@@ -142,7 +149,7 @@ function starTiles(boss: Tile, at: Tick, firstId: number): readonly StarHazard[]
       const tip = (dy === 0 && dx > ring + 1 && dx <= ring + ZEKE_RULES.star.outerArm.value) || (dx === 0 && dy > ring + 1 && dy <= ring + ZEKE_RULES.star.outerArm.value);
       if (inCore || broadArm || tip) stars.push({
         id: firstId + stars.length, tile: tile(x, y), activeFrom: tick(at + ZEKE_RULES.star.activeAfter.value), expiresAt: tick(at + ZEKE_RULES.star.expiresAfter.value),
-        visual: { kind: "star", delay: clientCycles(ZEKE_RULES.star.visualSpawnDelay.value + Math.max(0, Math.max(dx, dy) - ring) * ZEKE_RULES.star.visualArmDelay.value) },
+        visual: bossContains(boss, tile(x, y)) ? null : { kind: "star", delay: clientCycles(ZEKE_RULES.star.visualSpawnDelay.value + Math.max(0, Math.max(dx, dy) - ring) * ZEKE_RULES.star.visualArmDelay.value) },
       });
     }
   }
@@ -153,8 +160,8 @@ function spawnSwords(pattern: SwordPattern, at: Tick, firstId: number): readonly
   const create = (axis: "x" | "y", lane: number, direction: -1 | 1, id: number, delay = 0): SwordHazard => {
     const edge = direction === 1 ? ZEKE_RULES.swords.edgeLow.value : ZEKE_RULES.swords.edgeHigh.value;
     return {
-      id, tile: axis === "x" ? tile(edge, lane) : tile(lane, edge), axis, direction, lane, spawnedAt: at,
-      chargeAt: tick(at + ZEKE_RULES.swords.chargeAfter.value + delay), status: "charging", chargeDamage: 0, charged: false, hitBoss: false, hitPlayers: [],
+      id, tile: axis === "x" ? tile(edge, lane) : tile(lane, edge), launchFrom: axis === "x" ? tile(edge, lane) : tile(lane, edge), axis, direction, lane, spawnedAt: at,
+      chargeAt: tick(at + ZEKE_RULES.swords.chargeAfter.value + delay), impactAt: tick(at + ZEKE_RULES.swords.impactAfter.value + delay), dodgeLandings: [], status: "charging", chargeDamage: 0, charged: false, hitBoss: false, hitPlayers: [],
     };
   };
   switch (pattern.kind) {
@@ -179,23 +186,28 @@ function startStar(state: EncounterState, observation: EncounterObservation, pat
   return { ...state, rng: choice.rng, phase: { kind: "star", started: observation.tick, pattern }, autos: 0, stars, swords, nextHazardId: state.nextHazardId + stars.length + swords.length };
 }
 
-function starIsDue(state: EncounterState, at: Tick): boolean {
-  if (state.autos !== ZEKE_RULES.autos.count.value) return false;
-  const phase = state.phase;
+export function nextStarAt(phase: EncounterPhase): Tick | null {
   switch (phase.kind) {
     case "opening":
-      return at - phase.started >= ZEKE_RULES.autos.openingStar.value;
+      return tick(phase.started + ZEKE_RULES.autos.openingStar.value);
     case "recovery":
-      return at - phase.started >= (phase.recovery === "weaken" ? ZEKE_RULES.autos.recoveryStar.value : ZEKE_RULES.autos.healedStar.value);
+      return phase.recovery === "weaken"
+        ? tick(phase.stunnedUntil + ZEKE_RULES.autos.recoveryStarAfterStun.value)
+        : tick(phase.started + ZEKE_RULES.autos.healedStar.value);
     case "star":
     case "enrage":
     case "ended":
-      return false;
+      return null;
     default: {
       const unhandled: never = phase;
       return unhandled;
     }
   }
+}
+
+function starIsDue(state: EncounterState, at: Tick): boolean {
+  const due = nextStarAt(state.phase);
+  return state.autos === ZEKE_RULES.autos.count.value && due !== null && at >= due;
 }
 
 function firstAutoAt(phase: EncounterPhase): Tick | null {
@@ -205,7 +217,9 @@ function firstAutoAt(phase: EncounterPhase): Tick | null {
     case "star":
       return tick(phase.started + ZEKE_RULES.autos.starFirst.value);
     case "recovery":
-      return tick(phase.started + (phase.recovery === "weaken" ? ZEKE_RULES.autos.recoveryFirst.value : ZEKE_RULES.autos.healedFirst.value));
+      return phase.recovery === "weaken"
+        ? tick(phase.stunnedUntil + ZEKE_RULES.autos.recoveryFirstAfterStun.value)
+        : tick(phase.started + ZEKE_RULES.autos.healedFirst.value);
     case "enrage":
     case "ended":
       return null;
@@ -232,7 +246,7 @@ function confirmSuccessfulDodges(observation: EncounterObservation, events: Enco
 }
 
 function swordCrosses(sword: SwordHazard, destination: Tile, point: Tile, halfWidth: number): boolean {
-  const start = sword.axis === "x" ? sword.tile.x : sword.tile.y;
+  const start = sword.axis === "x" ? sword.launchFrom.x : sword.launchFrom.y;
   const end = sword.axis === "x" ? destination.x : destination.y;
   const along = sword.axis === "x" ? point.x : point.y;
   const across = sword.axis === "x" ? point.y : point.x;
@@ -241,26 +255,54 @@ function swordCrosses(sword: SwordHazard, destination: Tile, point: Tile, halfWi
 
 function moveSwords(state: EncounterState, observation: EncounterObservation, events: EncounterEvent[]): EncounterState {
   if (state.swords.length === 0 || state.swords.every((sword) => sword.status === "spent")) return state;
-  const participants = hazardParticipants(observation);
+  const participants = allParticipants(observation);
   const boss = bossCenter(observation.boss);
   let newlyHitBoss = false;
+  let fullyChargedBossHits = 0;
+  const impactDodges = new Map<string, Readonly<{ target: string; tick: Tick }>>();
   const swords = state.swords.map((sword): SwordHazard => {
-    if (sword.status === "spent" || observation.tick < sword.chargeAt) return sword;
-    if (sword.status === "flying") return { ...sword, status: observation.tick >= sword.chargeAt + ZEKE_RULES.swords.despawnAfter.value ? "spent" : "flying" };
-    events.push({ kind: "sword-charge", swordId: sword.id });
-    const distance = sword.direction * ZEKE_RULES.swords.speed.value;
-    const destination = sword.axis === "x" ? tile(sword.tile.x + distance, sword.tile.y + 0) : tile(sword.tile.x + 0, sword.tile.y + distance);
+    switch (sword.status) {
+      case "spent":
+        return sword;
+      case "charging": {
+        if (observation.tick < sword.chargeAt) return sword;
+        events.push({ kind: "sword-charge", swordId: sword.id });
+        const distance = sword.direction * ZEKE_RULES.swords.speed.value;
+        const destination = sword.axis === "x" ? tile(sword.tile.x + distance, sword.tile.y + 0) : tile(sword.tile.x + 0, sword.tile.y + distance);
+        return { ...sword, tile: destination, status: "flying", dodgeLandings: observation.dodgeLandings };
+      }
+      case "impacted":
+        return observation.tick >= sword.chargeAt + ZEKE_RULES.swords.despawnAfter.value ? { ...sword, status: "spent" } : sword;
+      case "flying":
+        if (observation.tick < sword.impactAt) return sword;
+        break;
+      default: {
+        const unhandled: never = sword;
+        return unhandled;
+      }
+    }
+    const destination = sword.tile;
+    for (const landing of sword.dodgeLandings) impactDodges.set(`${landing.id}:${sword.chargeAt}`, { target: landing.id, tick: sword.chargeAt });
     const hitBoss = swordCrosses(sword, destination, boss, 0);
     if (hitBoss) {
       events.push({ kind: "sword-hit-boss", swordId: sword.id, charged: sword.charged, chargeDamage: sword.chargeDamage });
       newlyHitBoss = true;
+      if (sword.charged) fullyChargedBossHits++;
     }
     const hitPlayers = participants.filter((player) => swordCrosses(sword, destination, player.tile, ZEKE_RULES.swords.halfWidth.value));
     for (const player of hitPlayers) events.push({ kind: "sword-hit-player", swordId: sword.id, target: player.id, chargeDamage: sword.chargeDamage });
-    return { ...sword, tile: destination, status: "flying", hitBoss, hitPlayers: hitPlayers.map((player) => player.id) };
+    return { ...sword, status: "impacted", hitBoss, hitPlayers: hitPlayers.map((player) => player.id) };
   });
+  for (const dodge of impactDodges.values()) {
+    if (!events.some((event) => event.kind === "sword-hit-player" && event.target === dodge.target)) events.push({ kind: "successful-dodge", ...dodge });
+  }
+  const stunBonus = fullyChargedBossHits * ZEKE_RULES.swords.fullyChargedStunBonus.value;
   if (newlyHitBoss && state.phase.kind === "star") {
-    return { ...state, swords, phase: { kind: "recovery", recovery: "weaken", started: observation.tick, stunnedUntil: tick(observation.tick + ZEKE_RULES.swords.stun.value) }, autos: 0 };
+    return { ...state, swords, phase: { kind: "recovery", recovery: "weaken", started: observation.tick,
+      stunnedUntil: tick(observation.tick + ZEKE_RULES.swords.stun.value + stunBonus) }, autos: 0 };
+  }
+  if (stunBonus > 0 && state.phase.kind === "recovery" && state.phase.recovery === "weaken") {
+    return { ...state, swords, phase: { ...state.phase, stunnedUntil: tick(state.phase.stunnedUntil + stunBonus) } };
   }
   if (swords.every((sword) => sword.status === "spent") && swords.every((sword) => !sword.hitBoss) && state.phase.kind === "star") {
     const heals = state.phase.pattern.kind !== "parallel";
@@ -282,7 +324,6 @@ export function resolveAfterMovement(state: EncounterState, observation: Encount
     state = { ...state, autos: ordinal };
   }
   const resolved = moveSwords(state, observation, events);
-  if (events.some((event) => event.kind === "sword-charge")) confirmSuccessfulDodges(observation, events);
   return { state: resolved, events };
 }
 
@@ -337,6 +378,7 @@ export function advanceEncounter(previous: EncounterState, observation: Encounte
   }
   if (state.stars.some((star) => star.expiresAt === observation.tick)) events.push({ kind: "star-expire" });
   state = { ...state, stars: state.stars.filter((star) => observation.tick < star.expiresAt) };
+  if (state.swords.some((sword) => sword.status === "flying" && observation.tick <= sword.impactAt)) return { state, events, movement: { kind: "hold" } };
   if (!movementAllowed(state.phase, observation.tick)) return { state, events, movement: { kind: "hold" } };
   if (!bossContains(observation.boss, observation.tank)) return { state, events, movement: { kind: "follow" } };
   const choice = draw(state.rng, ZEKE_RULES.walkUnder.directions.value.length);
@@ -346,11 +388,11 @@ export function advanceEncounter(previous: EncounterState, observation: Encounte
 
 function chargeSwords(state: EncounterState, observation: EncounterObservation): EncounterState {
   const swords = state.swords.map((sword): SwordHazard => {
-    if (sword.status !== "charging" || sword.charged) return sword;
+    if (sword.status === "spent" || sword.status === "impacted" || observation.tick > sword.impactAt || sword.charged) return sword;
     const reported = observation.swordCharges.find(({ id }) => id === sword.id)?.damage ?? sword.chargeDamage;
     const chargeDamage = Math.max(sword.chargeDamage, reported);
     if (chargeDamage === sword.chargeDamage) return sword;
-    return { ...sword, chargeDamage: Math.min(chargeDamage, ZEKE_RULES.swords.chargeThreshold.value), charged: chargeDamage >= ZEKE_RULES.swords.chargeThreshold.value };
+    return { ...sword, chargeDamage: Math.min(chargeDamage, ZEKE_RULES.swords.chargeMaximum.value), charged: chargeDamage >= ZEKE_RULES.swords.chargeMaximum.value };
   });
   return { ...state, swords };
 }

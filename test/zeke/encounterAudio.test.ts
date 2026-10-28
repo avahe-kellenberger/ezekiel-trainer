@@ -31,11 +31,12 @@ describe("encounter audio mix", () => {
     const { sounds, rows } = fightAudio();
     const volley = rows.find((row) => row.tick === 30);
     expect(volley?.events.filter((event) => event.kind === "sword-charge")).toHaveLength(4);
-    expect(volley?.events.filter((event) => event.kind === "sword-hit-boss")).toHaveLength(2);
+    expect(volley?.events.filter((event) => event.kind === "sword-hit-boss")).toHaveLength(0);
+    expect(rows.find((row) => row.tick === 31)?.events.filter((event) => event.kind === "sword-hit-boss")).toHaveLength(2);
     expect(sounds.filter((sound) => sound.tick === 30)).toEqual([
       { tick: 30, source: "cache-sound:12458", volume: 0.1 },
-      { tick: 30, source: "cache-sound:7115", volume: 0.1 },
     ]);
+    expect(sounds.filter((sound) => sound.tick === 31)).toEqual([{ tick: 31, source: "cache-sound:7115", volume: 0.1 }]);
   });
 
   test("separate star beats remain audible at the same level as cache animation sounds", () => {

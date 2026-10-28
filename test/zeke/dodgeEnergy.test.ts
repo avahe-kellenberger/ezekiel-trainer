@@ -141,8 +141,14 @@ describe("successful dodge special energy", () => {
       expect(drill.player.currentStats.specialAttack).toBe(40);
       drill.tickTo(flight);
       expect(drill.player.location).toEqual(to);
+      expect(drill.player.currentStats.specialAttack).toBe(40);
+      expect(drill.boss.rows.at(-1)?.events.some((event) => event.kind === "successful-dodge")).toBe(false);
+      drill.tickTo(flight + 1);
       const events = drill.boss.rows.at(-1)?.events ?? [];
       expect(events.some((event) => event.kind === "sword-hit-player" && event.target === "tank")).toBe(!safe);
+      expect(drill.player.currentStats.specialAttack).toBe(safe ? 43 : 40);
+      if (safe) drill.player.confirmSuccessfulDodge(tick(flight));
+      drill.tickTo(flight + 2);
       expect(drill.player.currentStats.specialAttack).toBe(safe ? 43 : 40);
     } finally { drill.dispose(); }
   });

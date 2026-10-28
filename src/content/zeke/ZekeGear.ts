@@ -1,6 +1,6 @@
 import { AttackStyle, AttackStylesController, AttackStyleTypes, Chest, Helmet, ImageLoader, ItemName, Legs, MeleeWeapon, Projectile, Random, ScytheOfVitur, Unit, PlayerAnimationIndices } from "osrs-sdk";
 import type { AttackBonuses, ProjectileOptions, UnitEquipment } from "osrs-sdk";
-import { ZEKE_GEAR } from "./ZekeGearData";
+import { ZEKE_GEAR, ZEKE_SCYTHE_COMBAT } from "./ZekeGearData";
 import { itemIconFile } from "../../servedAssets";
 
 declare module "osrs-sdk/lib/src/sdk/ItemName" {
@@ -66,6 +66,10 @@ function crushBonuses(equipment: UnitEquipment, bonuses: AttackBonuses): AttackB
 }
 
 export class ZekeScythe extends ScytheOfVitur {
+  override _calculateHitDamage(from: Unit, to: Unit, bonuses: AttackBonuses): number {
+    return Math.max(ZEKE_SCYTHE_COMBAT.minimumAccurateDamage, super._calculateHitDamage(from, to, bonuses));
+  }
+
   override defaultStyle(): AttackStyle { return AttackStyle.AGGRESSIVECRUSH; }
   override attack(from: Unit, to: Unit, bonuses: AttackBonuses = {}): boolean {
     return super.attack(from, to, this.attackStyle() === AttackStyle.AGGRESSIVECRUSH ? crushBonuses(from.equipment, bonuses) : bonuses);

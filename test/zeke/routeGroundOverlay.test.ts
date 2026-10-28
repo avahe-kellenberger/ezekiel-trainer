@@ -20,7 +20,7 @@ describe("route markings on the arena floor", () => {
         expect(marker.selectable).toBe(false);
         region.addEntity(marker);
       }
-      for (let at = 1; at <= 52; at++) region.world.tickWorld();
+      for (let at = 1; at <= 53; at++) region.world.tickWorld();
       expect(region.routeDemoSnapshot()).toMatchObject({ kind: "playing", cycle: 2 });
       expect(boss.location).toEqual({ x: 4, y: 6 });
       expect(region.players[0].location).toEqual({ x: 4, y: 7 });

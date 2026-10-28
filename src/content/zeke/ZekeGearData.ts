@@ -8,6 +8,11 @@ function stats(attack: readonly [number, number, number, number, number], defenc
   };
 }
 
+export const ZEKE_SCYTHE_COMBAT = {
+  minimumAccurateDamage: 1,
+  source: "https://github.com/weirdgloop/osrs-dps-calc/blob/main/src/lib/PlayerVsNPCCalc.ts#L1733",
+} as const;
+
 export const ZEKE_GEAR = {
   inquisitorsGreatHelm: { id: 24419, bonuses: stats([0, 0, 10, -5, -5], [19, 10, 21, 0, 12], 6, 1), crushBonus: 0.005, source: "https://oldschool.runescape.wiki/w/Inquisitor%27s_great_helm" },
   inquisitorsHauberk: { id: 24420, bonuses: stats([0, 0, 16, -11, -10], [67, 55, 71, 0, 35], 4, 2), crushBonus: 0.01, source: "https://oldschool.runescape.wiki/w/Inquisitor%27s_hauberk" },

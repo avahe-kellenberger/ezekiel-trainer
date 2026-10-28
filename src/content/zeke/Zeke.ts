@@ -1,5 +1,5 @@
-import { InvisibleMovementBlocker, Mob, Pathing, Projectile, Settings, Sound, SoundCache, cacheSound } from "osrs-sdk";
-import type { Model, Region, Unit } from "osrs-sdk";
+import { InvisibleMovementBlocker, MeleeWeapon, Mob, Pathing, Projectile, Settings, Sound, SoundCache, cacheSound } from "osrs-sdk";
+import type { IncomingAttackRoll, IncomingAttackRollModifiers, Model, Region, Unit } from "osrs-sdk";
 import { clientCycles, seed, tick, tile } from "../../sim/brands";
 import type { ClientCycles, Tick } from "../../sim/brands";
 import { ZEKE_RULES } from "./ZekeRules";
@@ -72,11 +72,19 @@ export class Zeke extends Mob {
   override get idlePoseId(): number {
     if (this.encounter?.phase.kind === "enrage") return ZEKE_PRESENTATION.finaleLoop;
     const phase = this.encounter?.phase;
-    return phase?.kind === "recovery" && phase.recovery === "weaken" && this.elapsed < phase.started + ZEKE_RULES.swords.wakeAfter.value ? ZEKE_PRESENTATION.weaken : ZEKE_PRESENTATION.idle;
+    return phase?.kind === "recovery" && phase.recovery === "weaken" && this.elapsed < phase.stunnedUntil - ZEKE_RULES.swords.wakeBeforeStunEnds.value ? ZEKE_PRESENTATION.weaken : ZEKE_PRESENTATION.idle;
   }
   override get walkingPoseId(): number { return ZEKE_PRESENTATION.walk; }
   override get deathAnimationId(): number { return this.encounter?.phase.kind === "enrage" || this.finaleBlades.length > 0 ? ZEKE_PRESENTATION.finaleDeath : ZEKE_PRESENTATION.death; }
   override create3dModel(): Model { return new ZekeModel(this); }
+
+  override incomingAttackRollModifiers(attack: IncomingAttackRoll): IncomingAttackRollModifiers {
+    const inherited = super.incomingAttackRollModifiers(attack);
+    const phase = this.encounter.phase;
+    return attack.weapon instanceof MeleeWeapon && phase.kind === "recovery" && phase.recovery === "weaken" && this.encounter.tick < phase.stunnedUntil - ZEKE_RULES.swords.wakeBeforeStunEnds.value
+      ? { ...inherited, guaranteedHit: ZEKE_RULES.swords.stunnedMeleeAccuracy.value === 1 }
+      : inherited;
+  }
 
   override drawOverheadText(context: OffscreenCanvasRenderingContext2D, scale: number, alignCenter = true, prefix = ""): void {
     // Mob already projects to head height; cancel Unit's additional tile-size offset.
@@ -101,7 +109,7 @@ export class Zeke extends Mob {
     this.motion = result.movement;
     this.recentEvents = result.events;
     const phase = this.encounter.phase;
-    if (phase.kind === "recovery" && phase.recovery === "weaken" && this.elapsed === phase.started + ZEKE_RULES.swords.wakeAfter.value) this.playAnimation(ZEKE_PRESENTATION.weakenEnd);
+    if (phase.kind === "recovery" && phase.recovery === "weaken" && this.elapsed === phase.stunnedUntil - ZEKE_RULES.swords.wakeBeforeStunEnds.value) this.playAnimation(ZEKE_PRESENTATION.weakenEnd);
     this.syncHazards();
     result.events.forEach((event) => this.apply(event));
   }
@@ -115,8 +123,13 @@ export class Zeke extends Mob {
         return landing ? [{ id: player.participantId, tile: tile(landing.x, landing.y) }] : [];
       }),
       bossAlive: this.currentStats.hitpoint > 0, bossHp: this.currentStats.hitpoint, maxHp: this.stats.hitpoint,
-      swordCharges: [...this.swords].map(([id, sword]) => ({ id, damage: sword.chargeBeforeTick })),
+      swordCharges: [...this.swords].map(([id, sword]) => ({ id, damage: sword.chargeDamage })),
     };
+  }
+
+  swordTarget(index: number): ZekeSword | null {
+    const sword = this.encounter.swords[index];
+    return sword ? this.swords.get(sword.id) ?? null : null;
   }
 
   override attackIfPossible(): void {}
@@ -248,10 +261,10 @@ export class Zeke extends Mob {
       case "star-expire": return;
       case "star-hit": this.hit(event.target, "hazard", ZEKE_RULES.star.damageMin.value + this.roll(ZEKE_RULES.star.damage.value - ZEKE_RULES.star.damageMin.value)); return;
       case "sword-charge": this.sound(ZEKE_PRESENTATION.sounds.swordFlight1); return;
-      case "sword-hit-player": this.hit(event.target, "hazard", event.chargeDamage + ZEKE_RULES.swords.playerDamageMin.value + this.roll(ZEKE_RULES.swords.playerDamage.value - ZEKE_RULES.swords.playerDamageMin.value)); return;
+      case "sword-hit-player": this.hit(event.target, "hazard", event.chargeDamage); return;
       case "sword-hit-boss":
         this.speak(ZEKE_DIALOGUE.weakened);
-        this.receiveSwordHit(event.chargeDamage + ZEKE_RULES.swords.bossDamageMin.value + this.roll(ZEKE_RULES.swords.bossDamage.value - ZEKE_RULES.swords.bossDamageMin.value));
+        this.receiveSwordHit(event.chargeDamage);
         this.playAnimation(ZEKE_PRESENTATION.weakenStart);
         this.sound(ZEKE_PRESENTATION.sounds.swordImpact);
         return;
@@ -311,9 +324,9 @@ export class Zeke extends Mob {
   }
 
   private syncHazards(): void {
-    const liveStars = new Set(this.encounter.stars.map((star) => star.id));
+    const liveStars = new Set(this.encounter.stars.filter((star) => star.visual !== null).map((star) => star.id));
     for (const [id, view] of this.stars) if (!liveStars.has(id)) { view.dying = 0; this.stars.delete(id); }
-    for (const star of this.encounter.stars) if (!this.stars.has(star.id)) {
+    for (const star of this.encounter.stars) if (star.visual !== null && !this.stars.has(star.id)) {
       const view = new ZekeStar(this.region, star.tile, star.visual);
       this.region.addEntity(view);
       this.stars.set(star.id, view);

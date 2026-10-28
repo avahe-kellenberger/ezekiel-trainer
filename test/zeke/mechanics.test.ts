@@ -126,7 +126,7 @@ describe("Recorded star and sword mechanics", () => {
     ]);
   });
 
-  it("renders the filled star, including the footprint, and hits only at S+3/S+5", () => {
+  it("keeps the boss footprint invisible but dangerous on both star explosions", () => {
     const rows = run(24, () => ({ tank: UNDER, party: [{ id: "ring", tile: tile(3, 5) }, { id: "gap", tile: tile(2, 2) }] }));
     const cue = rows[15].step.state;
     const mask = new Set(cue.stars.map((star) => `${star.tile.x},${star.tile.y}`));
@@ -136,6 +136,9 @@ describe("Recorded star and sword mechanics", () => {
     expect(mask.has("5,5")).toBe(true);
     expect(mask.has("4,4")).toBe(true);
     expect(mask.has("2,2")).toBe(false);
+    expect(cue.stars.filter((star) => bossContains(BOSS, star.tile))).toHaveLength(9);
+    expect(cue.stars.filter((star) => bossContains(BOSS, star.tile)).every((star) => star.visual === null)).toBe(true);
+    expect(cue.stars.filter((star) => !bossContains(BOSS, star.tile)).every((star) => star.visual?.kind === "star")).toBe(true);
     expect(events(rows).filter(({ event }) => event.kind === "star-hit")).toEqual([
       { at: 19, event: { kind: "star-hit", target: "tank" } },
       { at: 19, event: { kind: "star-hit", target: "ring" } },
@@ -162,44 +165,44 @@ describe("Recorded star and sword mechanics", () => {
     expect(rows[29].step.state.swords.map((sword) => sword.tile)).toEqual([tile(11, 5), tile(-1, 5), tile(2, 11), tile(2, -1)]);
     expect(events(rows).filter(({ event }) => event.kind === "sword-charge").map(({ at }) => at)).toEqual([30, 30, 30, 30]);
     expect(events(rows).filter(({ event }) => event.kind === "sword-hit-player")).toHaveLength(4);
-    expect(events(rows).filter(({ event }) => event.kind === "sword-hit-player").every(({ at }) => at === 30)).toBe(true);
+    expect(events(rows).filter(({ event }) => event.kind === "sword-hit-player").every(({ at }) => at === 31)).toBe(true);
     expect(last(rows).swords.every((sword) => sword.status === "spent")).toBe(true);
   });
 
   it("uses the boss's post-movement anchor and rejects a merely overlapping sword lane", () => {
-    const state = last(run(29));
-    const before = advanceEncounter(state, observation(30));
+    const state = last(run(30));
+    const before = advanceEncounter(state, observation(31));
     expect(before.events.some((event) => event.kind === "sword-hit-boss")).toBe(false);
-    const after = resolveAfterMovement(before.state, observation(30, { boss: tile(4, 5) }));
+    const after = resolveAfterMovement(before.state, observation(31, { boss: tile(4, 5) }));
     expect(after.events.some((event) => event.kind === "sword-hit-boss")).toBe(false);
     expect(after.state.phase.kind).toBe("star");
-    const aligned = resolveAfterMovement(before.state, observation(30));
+    const aligned = resolveAfterMovement(before.state, observation(31));
     expect(aligned.events.filter((event) => event.kind === "sword-hit-boss")).toHaveLength(2);
   });
 
-  it("uses the SDK pre-flight charge snapshot without delaying flight or accepting later damage", () => {
+  it("accepts landed charge through impact inclusive without accepting later damage", () => {
     const state = last(run(28));
     const [first, second] = state.swords;
-    const charged = run(30, (at) => ({ swordCharges: at === 29 ? [] : [{ id: first.id, damage: 54 }, { id: second.id, damage: 90 }] }), state);
+    const charged = run(31, (at) => ({ swordCharges: at < 31 ? [] : [{ id: first.id, damage: 54 }, { id: second.id, damage: 110 }] }), state);
     const hits = events(charged).filter(({ event }) => event.kind === "sword-hit-boss");
     expect(hits).toEqual([
-      { at: 30, event: { kind: "sword-hit-boss", swordId: first.id, charged: false, chargeDamage: 54 } },
-      { at: 30, event: { kind: "sword-hit-boss", swordId: second.id, charged: true, chargeDamage: 80 } },
+      { at: 31, event: { kind: "sword-hit-boss", swordId: first.id, charged: false, chargeDamage: 54 } },
+      { at: 31, event: { kind: "sword-hit-boss", swordId: second.id, charged: true, chargeDamage: 100 } },
     ]);
     expect(last(charged).phase.kind).toBe("recovery");
-    const tooLate = run(31, () => ({ swordCharges: [{ id: first.id, damage: 80 }, { id: second.id, damage: 90 }] }), last(charged));
+    const tooLate = run(32, () => ({ swordCharges: [{ id: first.id, damage: 80 }, { id: second.id, damage: 90 }] }), last(charged));
     expect(last(tooLate).swords[0].chargeDamage).toBe(54);
     expect(events(tooLate).filter(({ event }) => event.kind === "sword-hit-boss")).toEqual([]);
   });
 
   it("uncharged hits also weaken, stop walking through W+9, then resume with two autos before another star", () => {
-    const state = last(run(30));
-    expect(state.phase).toEqual({ kind: "recovery", recovery: "weaken", started: 30, stunnedUntil: 40 });
-    const rows = run(52, () => ({ tank: UNDER }), state);
-    expect(rows.filter(({ at }) => at < 40).every(({ step }) => step.movement.kind === "hold")).toBe(true);
-    expect(rows.filter(({ at }) => at >= 40 && at < 52).every(({ step }) => step.movement.kind === "walk-under")).toBe(true);
-    expect(events(rows).filter(({ event }) => event.kind === "auto").map(({ at }) => at)).toEqual([42, 47]);
-    expect(events(rows).filter(({ event }) => event.kind === "star-tell").map(({ at }) => at)).toEqual([52]);
+    const state = last(run(31));
+    expect(state.phase).toEqual({ kind: "recovery", recovery: "weaken", started: 31, stunnedUntil: 41 });
+    const rows = run(53, () => ({ tank: UNDER }), state);
+    expect(rows.filter(({ at }) => at < 41).every(({ step }) => step.movement.kind === "hold")).toBe(true);
+    expect(rows.filter(({ at }) => at >= 41 && at < 53).every(({ step }) => step.movement.kind === "walk-under")).toBe(true);
+    expect(events(rows).filter(({ event }) => event.kind === "auto").map(({ at }) => at)).toEqual([43, 48]);
+    expect(events(rows).filter(({ event }) => event.kind === "star-tell").map(({ at }) => at)).toEqual([53]);
   });
 
   it("heals a missed cross at flight+4 after the flight+2 tell, then restarts autos", () => {
@@ -233,6 +236,24 @@ describe("Recorded star and sword mechanics", () => {
     expect(inDodgeWindow(state, tick(30), tile(3, 5))).toBe(true);
     expect(inDodgeWindow(state, tick(30), tile(6, 8))).toBe(false);
     expect(inDodgeWindow(last(run(30)), tick(31), tile(3, 5))).toBe(false);
+  });
+
+  it("resolves staggered impacts and their own last charge tick after recovery begins", () => {
+    const opening = last(run(15));
+    const cue = advanceEncounter(opening, observation(16), { kind: "parallel", axis: "x", direction: 1 });
+    const rows = run(34, (at) => ({
+      boss: tile(4, 3),
+      swordCharges: cue.state.swords.filter((sword) => at >= sword.impactAt).map((sword) => ({ id: sword.id, damage: 40 })),
+    }), cue.state);
+    expect(events(rows).filter(({ event }) => event.kind === "sword-charge").map(({ at }) => at)).toEqual([30, 31, 32]);
+    expect(rows.filter(({ at }) => at >= 31 && at <= 33).map(({ at, step }) => ({ at, resolved: step.state.swords.filter((sword) => sword.status === "impacted" || sword.status === "spent").length }))).toEqual([
+      { at: 31, resolved: 1 }, { at: 32, resolved: 2 }, { at: 33, resolved: 3 },
+    ]);
+    expect(events(rows).filter(({ event }) => event.kind === "sword-hit-boss")).toEqual([
+      { at: 31, event: { kind: "sword-hit-boss", swordId: cue.state.swords[0].id, charged: false, chargeDamage: 40 } },
+    ]);
+    expect(last(rows).swords.map((sword) => sword.chargeDamage)).toEqual([40, 40, 40]);
+    expect(last(rows).phase).toMatchObject({ kind: "recovery", started: 31 });
   });
 });
 

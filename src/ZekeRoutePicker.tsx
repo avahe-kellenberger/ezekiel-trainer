@@ -6,6 +6,7 @@ import { ZEKE_ROUTE_SCENARIOS } from "./content/zeke/ZekeRoutePlans";
 import type { ZekeRouteId, ZekeRouteScenario } from "./content/zeke/ZekeRoutePlans";
 import type { ZekeRouteDemoStatus } from "./content/zeke/ZekeRouteDemo";
 import type { SwordPattern } from "./content/zeke/mechanics";
+import { nextStarAt } from "./content/zeke/mechanics";
 import { ZEKE_RULES } from "./content/zeke/ZekeRules";
 
 function swordPath(pattern: SwordPattern, x: number, y: number): boolean {
@@ -65,8 +66,10 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
   useEffect(() => {
     const poll = window.setInterval(() => {
       const next = region.routeDemoSnapshot();
-      const resetOffset = ZEKE_RULES.swords.chargeAfter.value + ZEKE_RULES.autos.recoveryStar.value - 1;
-      if (!trainer.world.isPaused && next.kind === "practice" && ((next.starOffset !== null && next.starOffset >= resetOffset) || next.cycle > 1 || region.result !== null)) {
+      const fight = next.kind === "practice" ? region.snapshot() : null;
+      const nextStar = fight?.phase.kind === "recovery" ? nextStarAt(fight.phase) : null;
+      const recoveryComplete = fight !== null && nextStar !== null && fight.tick >= nextStar - 1;
+      if (!trainer.world.isPaused && next.kind === "practice" && (recoveryComplete || next.cycle > 1 || region.result !== null)) {
         trainer.reset();
       }
       setStatus(region.routeDemoSnapshot());
@@ -130,6 +133,7 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
       {status.kind !== "disabled" && !open && <section id="route_demo_status" aria-label="Scenario practice">
         <strong>{status.scenario.label}</strong>
         <span role="status" data-kind={status.kind}>{paused ? "Paused · " : ""}{demoMessage(status)}</span>
+        <span id="route_casts">Wind Surge casts: {status.combat.filter((event) => event.cycle === status.cycle && event.kind === "cast").length}/{status.scenario.expectedCasts}{status.starOffset === null ? " · Opening attacks" : ` · Tick ${status.starOffset + 1}`}</span>
         <label className="route_path_toggle"><input id="route_show_path" type="checkbox" disabled={!ready} checked={showPath} onChange={(event) => setShowPath(event.target.checked)} /> Show path and numbered clicks</label>
         <div>
           <button id="route_play" type="button" disabled={!ready} onClick={play}>{status.kind === "playing" ? "Practise manually" : "Watch automatic demo"}</button>{" "}
@@ -138,7 +142,8 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
           <button type="button" onClick={() => setOpen(true)}>Change scenario</button>{" "}
           <button id="route_manual" type="button" onClick={() => choose(null)}>Exit scenarios</button>
         </div>
-        <small>Cyan path · gold click tiles · numbers show click order. Movement only; swords are uncharged.</small>
+        <small>Harm staff: {status.scenario.expectedCasts} Wind Surge {status.scenario.expectedCasts === 1 ? "cast" : "casts"}, then scythe. One action per tick.</small>
+        <small>Charge can land through tick {ZEKE_RULES.swords.impactAfter.value + 1}, counting spawn as tick 1. Provisional timing.</small>
       </section>}
       <section ref={panel} id="route_scenarios" aria-labelledby="route_scenarios_title" hidden={!open}>
         <div className="route_scenarios_heading"><h2 id="route_scenarios_title">Choose a scenario</h2><button type="button" onClick={() => setOpen(false)} aria-label="Close scenarios">Close</button></div>

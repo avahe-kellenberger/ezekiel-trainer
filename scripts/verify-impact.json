@@ -44,7 +44,6 @@
     ".gitignore",
     "docs/**",
     ".claude/**",
-    ".github/**",
     "review-ratchet/**",
     "test/**",
     "vitest.config.mts",

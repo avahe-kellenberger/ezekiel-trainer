@@ -2,6 +2,7 @@ import { AttackStyle, ItemName, MagicWeapon, Projectile, Sound, XpDrop, cacheSou
 import type { AttackBonuses, ProjectileOptions, Unit } from "osrs-sdk";
 import { ZEKE_PRESENTATION } from "./assets";
 import { ZekeSword } from "./hazards";
+import { ZEKE_RULES } from "./ZekeRules";
 
 declare module "osrs-sdk/lib/src/sdk/ItemName" {
   enum ItemName { WIND_SURGE = "Wind Surge" }
@@ -12,7 +13,7 @@ const look = ZEKE_PRESENTATION.windSurge;
 
 class WindSurgeProjectile extends Projectile {
   constructor(spell: WindSurge, from: Unit, private readonly target: Unit, options: ProjectileOptions, private readonly landed: boolean) {
-    super(spell, spell.damage, from, target, "magic", options);
+    super(spell, target instanceof ZekeSword ? ZEKE_RULES.swords.windSurgeCharge.value : spell.damage, from, target, "magic", options);
   }
 
   override beforeHit(): void {

@@ -25,7 +25,7 @@ function flight(charge: number, options: { invincible?: boolean; hp?: number; pr
   player.setLocation({ x: 7, y: 5 });
   if (options.prayer) player.prayerController.findPrayerByName("Protect from Magic").toggle(player);
   boss.setLocation({ x: 4, y: 6 });
-  tickTo(30);
+  tickTo(31);
   return { region, player, boss, dispose: () => trainer.dispose() };
 }
 
@@ -44,15 +44,13 @@ function damageSample(charge: number, prayer = false) {
 }
 
 describe("sword damage scales with wind charge", () => {
-  test.each([1, 40, 80])("%i charge adds damage to both player and boss without guaranteeing death", (charge) => {
+  test.each([1, 40, 80, 100])("%i charge deals exactly that damage to both player and boss", (charge) => {
     const uncharged = damageSample(0);
     const charged = damageSample(charge, true);
-    expect(uncharged.playerHits).toHaveLength(2);
-    expect(uncharged.playerHits.every((damage) => damage >= 27 && damage <= 31)).toBe(true);
-    expect(uncharged.bossHits).toHaveLength(2);
-    expect(uncharged.bossHits.every((damage) => damage >= 12 && damage <= 15)).toBe(true);
-    expect(charged.playerHits).toEqual([uncharged.playerHits[0] + charge, uncharged.playerHits[1]]);
-    expect(charged.bossHits).toEqual([uncharged.bossHits[0] + charge, uncharged.bossHits[1]]);
+    expect(uncharged.playerHits).toEqual([0, 0]);
+    expect(uncharged.bossHits).toEqual([0, 0]);
+    expect(charged.playerHits).toEqual([charge, 0]);
+    expect(charged.bossHits).toEqual([charge, 0]);
     expect(charged.playerHp).toBe(uncharged.playerHp - charge);
     expect(charged.bossHp).toBe(uncharged.bossHp - charge);
     expect(charged.playerHp).toBeGreaterThan(0);
@@ -75,7 +73,7 @@ describe("sword damage scales with wind charge", () => {
       expect(drill.player.dying).toBe(4);
       expect(drill.region.result).toBeNull();
       drill.region.world.tickWorld(4);
-      expect(drill.region.result).toEqual({ kind: "death", tick: 30, invincible: false });
+      expect(drill.region.result).toEqual({ kind: "death", tick: 31, invincible: false });
     } finally { drill.dispose(); }
   });
 
@@ -87,7 +85,7 @@ describe("sword damage scales with wind charge", () => {
       expect(drill.player.dying).toBe(-1);
       expect(drill.region.result).toBeNull();
       drill.region.world.tickWorld();
-      expect(drill.boss.encounterTick).toBe(31);
+      expect(drill.boss.encounterTick).toBe(32);
     } finally { drill.dispose(); }
   });
 });
