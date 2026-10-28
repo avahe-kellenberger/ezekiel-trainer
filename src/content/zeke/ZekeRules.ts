@@ -87,6 +87,8 @@ export const ZEKE_RULES = {
     stun: rule(span(10), "RSProx section 2b: no movement W+1..W+9; first allowed attempt W+10. Provisional base stun remains ten ticks regardless of the number of partial-charge boss hits; the supplied video shows equivalent downed time for two and four such hits."),
     fullyChargedStunBonus: rule(span(4), "Provisional user correction: each fully charged100percent sword that hits the boss adds four ticks to the shared downed duration. Full-charge hits stack additively; partial-charge hits and missed swords add no bonus."),
     wakeBeforeStunEnds: rule(span(2), "RSProx section 6: weaken_to_idle begins two ticks before movement resumes, W+8 for a ten-tick stun. User correction adds four stun ticks per fully charged boss hit, so the rise follows the shared stun end. Client animation timing remains unverified."),
+    playerDamageMin: rule(27, "Restored provisional RSProx section 6c player impact minimum. Each colliding sword deals 27 to 31 base damage plus charge to players; the user's exact charge-only correction applies to boss damage. The wiki does not verify this bound."),
+    playerDamage: rule(31, "Restored provisional RSProx section 6c player impact maximum. Each colliding sword rolls its own 27 to 31 base damage before player hits are combined; current live-game bounds remain unverified."),
     missedHeal: rule(0.1, "RSProx section 6b: heal ten percent of maximum health, capped at full."),
     healTellAfter: rule(span(2), "RSProx section 6b: crossed volleys heal animation at flight+2."),
     healHitAfter: rule(span(4), "RSProx section 6b: crossed volleys heal health at launch+4. This remains launch-relative under the provisional +15 impact cutoff."),

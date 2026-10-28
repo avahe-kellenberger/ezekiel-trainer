@@ -239,8 +239,10 @@ export class Zeke extends Mob {
     const playerDamage = new Map<string, number>();
     for (const event of events) {
       if (event.kind === "sword-hit-boss") bossDamage = (bossDamage ?? 0) + event.chargeDamage;
-      else if (event.kind === "sword-hit-player") playerDamage.set(event.target, (playerDamage.get(event.target) ?? 0) + event.chargeDamage);
-      else this.apply(event);
+      else if (event.kind === "sword-hit-player") {
+        const damage = event.chargeDamage + ZEKE_RULES.swords.playerDamageMin.value + this.roll(ZEKE_RULES.swords.playerDamage.value - ZEKE_RULES.swords.playerDamageMin.value);
+        playerDamage.set(event.target, (playerDamage.get(event.target) ?? 0) + damage);
+      } else this.apply(event);
     }
     if (bossDamage !== null) {
       this.speak(ZEKE_DIALOGUE.weakened);

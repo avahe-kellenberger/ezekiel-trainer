@@ -44,7 +44,7 @@ function practice(charges: readonly number[], pattern: SwordPattern = { kind: "c
     sword.addProjectile(new Projectile(null, charge, player, sword, "magic", { setDelay: 1 }));
   });
   tickTo(29);
-  player.currentStats.hitpoint = 500;
+  player.currentStats.hitpoint = 1000;
   player.setAggro(null);
   const align = (lane: number) => {
     boss.setLocation({ x: 4, y: lane + 1 });
@@ -60,12 +60,12 @@ describe("native simultaneous sword impact damage", () => {
     { charges: [80, 0, 0, 0], damage: 80, stunEnd: 41 },
     { charges: [0, 0, 0, 0], damage: 0, stunEnd: 41 },
     { charges: [100, 100, 100, 100], damage: 400, stunEnd: 57 },
-  ])("four crossing swords charged $charges give each victim one $damage damage hitsplat", ({ charges, damage, stunEnd }) => {
+  ])("four crossing swords charged $charges combine player impacts while dealing exactly $damage to the boss", ({ charges, damage, stunEnd }) => {
     const drill = practice(charges);
     try {
       const ally = new ZekePlayer(drill.region, { x: 5, y: 5 }, "ally", () => true);
       drill.region.addPlayer(ally);
-      ally.currentStats.hitpoint = 500;
+      ally.currentStats.hitpoint = 1000;
       ally.destinationLocation = { ...ally.location };
       drill.player.prayerController.findPrayerByName("Protect from Magic").toggle(drill.player);
       drill.align(5);
@@ -75,10 +75,13 @@ describe("native simultaneous sword impact damage", () => {
       drill.tickTo(31);
       expect(drill.boss.hitsThisTick.map((hit) => hit.damage)).toEqual([damage]);
       expect(drill.boss.currentStats.hitpoint).toBe(health - damage);
-      expect(drill.player.hitsThisTick.map((hit) => hit.damage)).toEqual([damage]);
-      expect(drill.player.currentStats.hitpoint).toBe(500 - damage);
-      expect(ally.hitsThisTick.map((hit) => hit.damage)).toEqual([damage]);
-      expect(ally.currentStats.hitpoint).toBe(500 - damage);
+      for (const victim of [drill.player, ally]) {
+        expect(victim.hitsThisTick).toHaveLength(1);
+        const impact = victim.hitsThisTick[0].damage;
+        expect(impact).toBeGreaterThanOrEqual(damage + 4 * 27);
+        expect(impact).toBeLessThanOrEqual(damage + 4 * 31);
+        expect(victim.currentStats.hitpoint).toBe(1000 - impact);
+      }
       const impacts = drill.boss.rows.at(-1)?.events ?? [];
       expect(impacts.filter((event) => event.kind === "sword-hit-boss")).toHaveLength(4);
       expect(impacts.filter((event) => event.kind === "sword-hit-player" && event.target === "tank")).toHaveLength(4);
@@ -96,15 +99,21 @@ describe("native simultaneous sword impact damage", () => {
     try {
       const ally = new ZekePlayer(drill.region, { x: 8, y: 5 }, "ally", () => true);
       drill.region.addPlayer(ally);
-      ally.currentStats.hitpoint = 500;
+      ally.currentStats.hitpoint = 1000;
       ally.destinationLocation = { ...ally.location };
       drill.tickTo(30);
       drill.align(5);
       drill.tickTo(31);
-      expect(drill.player.hitsThisTick.map((hit) => hit.damage)).toEqual([320]);
-      expect(ally.hitsThisTick.map((hit) => hit.damage)).toEqual([160]);
-      expect(drill.player.currentStats.hitpoint).toBe(180);
-      expect(ally.currentStats.hitpoint).toBe(340);
+      expect(drill.player.hitsThisTick).toHaveLength(1);
+      expect(ally.hitsThisTick).toHaveLength(1);
+      const tankDamage = drill.player.hitsThisTick[0].damage;
+      const allyDamage = ally.hitsThisTick[0].damage;
+      expect(tankDamage).toBeGreaterThanOrEqual(320 + 4 * 27);
+      expect(tankDamage).toBeLessThanOrEqual(320 + 4 * 31);
+      expect(allyDamage).toBeGreaterThanOrEqual(160 + 2 * 27);
+      expect(allyDamage).toBeLessThanOrEqual(160 + 2 * 31);
+      expect(drill.player.currentStats.hitpoint).toBe(1000 - tankDamage);
+      expect(ally.currentStats.hitpoint).toBe(1000 - allyDamage);
       expect(drill.boss.rows.at(-1)?.events.filter((event) => event.kind === "sword-hit-player" && event.target === "ally")).toHaveLength(2);
     } finally { drill.dispose(); }
   });
@@ -114,12 +123,16 @@ describe("native simultaneous sword impact damage", () => {
     try {
       const health = drill.boss.currentStats.hitpoint;
       for (const [index, lane] of [2, 5, 8].entries()) {
+        const playerHealth = drill.player.currentStats.hitpoint;
         drill.align(lane);
         drill.tickTo(31 + index);
         expect(drill.boss.hitsThisTick.map((hit) => hit.damage)).toEqual([80]);
-        expect(drill.player.hitsThisTick.map((hit) => hit.damage)).toEqual([80]);
+        expect(drill.player.hitsThisTick).toHaveLength(1);
+        const impact = drill.player.hitsThisTick[0].damage;
+        expect(impact).toBeGreaterThanOrEqual(107);
+        expect(impact).toBeLessThanOrEqual(111);
         expect(drill.boss.currentStats.hitpoint).toBe(health - (index + 1) * 80);
-        expect(drill.player.currentStats.hitpoint).toBe(500 - (index + 1) * 80);
+        expect(drill.player.currentStats.hitpoint).toBe(playerHealth - impact);
       }
     } finally { drill.dispose(); }
   });

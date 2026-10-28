@@ -43,13 +43,15 @@ function damageSample(charge: number, prayer = false) {
   } finally { drill.dispose(); }
 }
 
-describe("sword damage scales with wind charge", () => {
-  test.each([1, 40, 80, 100])("%i charge deals exactly that damage to both player and boss", (charge) => {
+describe("swords retain player impact damage separately from boss charge damage", () => {
+  test.each([1, 40, 80, 100])("%i charge adds to player impact damage and deals exactly that damage to the boss", (charge) => {
     const uncharged = damageSample(0);
     const charged = damageSample(charge, true);
-    expect(uncharged.playerHits).toEqual([0]);
+    expect(uncharged.playerHits).toHaveLength(1);
+    expect(uncharged.playerHits[0]).toBeGreaterThanOrEqual(54);
+    expect(uncharged.playerHits[0]).toBeLessThanOrEqual(62);
     expect(uncharged.bossHits).toEqual([0]);
-    expect(charged.playerHits).toEqual([charge]);
+    expect(charged.playerHits).toEqual([uncharged.playerHits[0] + charge]);
     expect(charged.bossHits).toEqual([charge]);
     expect(charged.playerHp).toBe(uncharged.playerHp - charge);
     expect(charged.bossHp).toBe(uncharged.bossHp - charge);
@@ -65,8 +67,8 @@ describe("sword damage scales with wind charge", () => {
     expect(protectedPlayer.playerHits).toEqual(unprotected.playerHits);
   });
 
-  test("damage exceeding remaining health retains native death presentation", () => {
-    const drill = flight(80, { hp: 20, prayer: true });
+  test.each([0, 80])("%i charge swords exceeding remaining health retain native death presentation", (charge) => {
+    const drill = flight(charge, { hp: 20, prayer: true });
     try {
       expect(drill.player.currentStats.hitpoint).toBe(0);
       expect(drill.player.hitsThisTick[0].damage).toBe(20);
