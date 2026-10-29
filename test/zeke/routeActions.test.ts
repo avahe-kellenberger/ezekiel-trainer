@@ -109,9 +109,9 @@ it("the issued ledger records actual actions and rejects a second command on the
 
 it("opening inputs dispatch once per tick and remain absent from the issued ledger until applied", () => {
   const demo = new ZekeRouteDemo("cross-2-2", true, "wind-surge");
-  expect(demo.beforeTick(tick(1), createEncounter(seed(1)))).toEqual({ kind: "attack-boss" });
-  expect(demo.beforeTick(tick(1), createEncounter(seed(1)))).toBeNull();
+  expect(demo.beforeTick(tick(1), createEncounter(seed(1)), false)).toEqual({ kind: "attack-boss" });
+  expect(demo.beforeTick(tick(1), createEncounter(seed(1)), false)).toBeNull();
   expect(demo.issuedActions()).toEqual([]);
-  expect(demo.beforeTick(tick(14), createEncounter(seed(1)))).toEqual({ kind: "move", to: tile(4, 7) });
-  expect(demo.beforeTick(tick(15), createEncounter(seed(1)))).toEqual({ kind: "equip", weapon: "harm" });
+  expect(demo.beforeTick(tick(14), createEncounter(seed(1)), false)).toEqual({ kind: "move", to: tile(4, 7) });
+  expect(demo.beforeTick(tick(15), createEncounter(seed(1)), false)).toEqual({ kind: "equip", weapon: "harm" });
 });
