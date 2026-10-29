@@ -55,12 +55,12 @@ describe("watchable route scenario picker", () => {
 
 describe("automatic demo controls", () => {
   test.each([
-    { attackMode: "scythe", control: "playing", route: "cross-2-2" },
-    { attackMode: "wind-surge", control: "playing", route: "cross-2-2" },
+    { attackMode: "scythe", control: "playing", route: "two-rows" },
+    { attackMode: "wind-surge", control: "playing", route: "two-rows" },
     { attackMode: "scythe", control: "playing", route: "cross-2-8" },
     { attackMode: "wind-surge", control: "playing", route: "cross-2-8" },
     { attackMode: "scythe", control: "practice", route: "cross-5-2" },
-  ] as const)("$route $attackMode $control finishes before the trainer restarts it while its box is hidden", ({ attackMode, control, route }) => {
+  ] as const)("$route $attackMode $control keeps the same fight through three sword cycles with its box hidden", ({ attackMode, control, route }) => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     Settings.readFromStorage();
@@ -80,35 +80,26 @@ describe("automatic demo controls", () => {
       const originalPlayer = trainer.getSnapshot().player;
       const boss = region.primaryBoss;
       if (!(boss instanceof Zeke)) throw new Error("Missing native boss");
-      let stunEnd: number | null = null;
-      for (let count = 0; count < 90 && region.routeDemoSnapshot().kind !== "complete"; count++) {
+      trainer.world.startTicking();
+      let nextCycle = 2;
+      for (let count = 0; count < 190 && nextCycle <= 3; count++) {
         region.world.tickWorld();
-        const phase = boss.encounter.phase;
-        if (phase.kind === "recovery" && phase.recovery === "weaken") {
-          stunEnd = phase.stunnedUntil;
-          if (boss.encounterTick < stunEnd) expect(region.routeDemoSnapshot().kind).toBe(control);
+        for (let client = 0; client < 30; client++) region.world.tickClient(client / 30);
+        act(() => vi.advanceTimersByTime(600));
+        const status = region.routeDemoSnapshot();
+        expect(status.kind).toBe(control);
+        if (status.kind === "disabled") throw new Error("Scenario was disabled.");
+        expect(trainer.getSnapshot().player).toBe(originalPlayer);
+        expect(region.primaryBoss).toBe(boss);
+        expect(trainer.world.isPaused).toBe(false);
+        if (status.cycle >= nextCycle) {
+          expect(boss.encounterTick).toBeGreaterThan(16);
+          nextCycle++;
         }
       }
-      expect(stunEnd).not.toBeNull();
-      if (control === "playing") {
-        expect(boss.encounterTick).toBeGreaterThan(stunEnd ?? 0);
-        expect(region.snapshot()?.player.tile).toEqual({ x: 4, y: 7 });
-        expect(region.snapshot()?.boss.tile).toEqual({ x: 4, y: 6 });
-      } else expect(boss.encounterTick).toBe(stunEnd);
-      expect(region.routeDemoSnapshot()).toMatchObject({ kind: "complete", attackMode });
-      expect(trainer.world.isPaused).toBe(true);
-      expect(trainer.getSnapshot().player).toBe(originalPlayer);
-      act(() => vi.advanceTimersByTime(100));
-      expect(trainer.getSnapshot().player).not.toBe(originalPlayer);
-      expect(trainer.getSnapshot().player).toBe(region.players[0]);
-      expect(region.routeDemoSnapshot()).toMatchObject({ kind: control, attackMode, cycle: 2, starOffset: null });
-      expect(region.snapshot()?.tick).toBe(0);
-      expect(trainer.world.isPaused).toBe(false);
+      expect(nextCycle).toBe(4);
       expect(container.querySelector("#route_demo_status")).toBeNull();
       expect(container.querySelector("#route_picker")?.textContent).toBe("Show scenario");
-      const restartedPlayer = trainer.getSnapshot().player;
-      act(() => vi.advanceTimersByTime(500));
-      expect(trainer.getSnapshot().player).toBe(restartedPlayer);
     } finally {
       act(() => root.unmount());
       trainer.dispose();

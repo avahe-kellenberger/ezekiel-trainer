@@ -62,10 +62,10 @@ class RouteGroundTile extends TileMarker {
 export function routeGroundOverlay(region: Region, scenario: ZekeRouteScenario): readonly Entity[] {
   const clicks = new Map<string, { at: Tile; numbers: number[] }>();
   scenario.clicks.forEach((click, index) => {
-    const key = `${click.to.x},${click.to.y}`;
+    const key = `${click.x},${click.y}`;
     const group = clicks.get(key);
     if (group) group.numbers.push(index + 1);
-    else clicks.set(key, { at: click.to, numbers: [index + 1] });
+    else clicks.set(key, { at: click, numbers: [index + 1] });
   });
   const markers: Entity[] = [new RoutePath(region, scenario.trace)];
   const seen = new Set<string>();

@@ -21,7 +21,7 @@ describe("route markings on the arena floor", () => {
         region.addEntity(marker);
       }
       for (let at = 1; at <= 52 && region.routeDemoSnapshot().kind === "playing"; at++) region.world.tickWorld();
-      expect(region.routeDemoSnapshot()).toMatchObject({ kind: "complete", cycle: 1 });
+      expect(region.routeDemoSnapshot()).toMatchObject({ kind: "playing", stage: { kind: "awaiting-star" }, cycle: 1 });
       expect(region.players[0]?.location).toEqual({ x: 4, y: 7 });
       expect(boss.location).toEqual({ x: 4, y: 6 });
       const events = boss.rows.flatMap((row) => row.events);

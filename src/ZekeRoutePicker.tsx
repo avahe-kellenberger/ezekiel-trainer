@@ -6,7 +6,6 @@ import { ZEKE_ROUTE_SCENARIOS } from "./content/zeke/ZekeRoutePlans";
 import type { ZekeRouteId, ZekeRouteScenario } from "./content/zeke/ZekeRoutePlans";
 import type { ZekeRouteDemoStatus } from "./content/zeke/ZekeRouteDemo";
 import type { SwordPattern } from "./content/zeke/mechanics";
-import { nextStarAt } from "./content/zeke/mechanics";
 import { ZEKE_RULES } from "./content/zeke/ZekeRules";
 
 function swordPath(pattern: SwordPattern, x: number, y: number): boolean {
@@ -48,8 +47,15 @@ function demoMessage(status: ZekeRouteDemoStatus): string {
   switch (status.kind) {
     case "disabled": return "Choose a scenario to practice.";
     case "practice": return "Manual practice · you control the tank";
-    case "playing": return `${status.stage.kind === "returning" ? "Returning to start" : "Automatic demo"} · loop ${status.cycle} · game input locked`;
-    case "complete": return "Scenario finished · restarting";
+    case "playing": {
+      const stage = status.stage;
+      switch (stage.kind) {
+        case "route": return `Automatic demo · cycle ${status.cycle} · game input locked`;
+        case "returning": return `Returning to start · cycle ${status.cycle} · game input locked`;
+        case "awaiting-star": return `Ready for next swords · cycle ${status.cycle} · game input locked`;
+        default: { const unhandled: never = stage; return unhandled; }
+      }
+    }
     case "failed": return `Route stopped: ${status.reason}`;
     default: {
       const unhandled: never = status;
@@ -68,13 +74,6 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
   const pickerButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const poll = window.setInterval(() => {
-      const next = region.routeDemoSnapshot();
-      const fight = next.kind === "practice" ? region.snapshot() : null;
-      const nextStar = fight?.phase.kind === "recovery" ? nextStarAt(fight.phase) : null;
-      const recoveryComplete = fight !== null && nextStar !== null && fight.tick >= nextStar - 1;
-      if (next.kind === "complete" || (!trainer.world.isPaused && next.kind === "practice" && (recoveryComplete || region.result !== null))) {
-        trainer.reset();
-      }
       setStatus(region.routeDemoSnapshot());
       setPaused(trainer.world.isPaused);
     }, 100);
@@ -161,12 +160,12 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
           <button type="button" onClick={() => setVisiblePanel("scenarios")}>Change scenario</button>{" "}
           <button id="route_manual" type="button" onClick={() => choose(null)}>Exit scenarios</button>
         </div>
-        <small>{status.attackMode === "wind-surge" ? `Harm staff: ${status.scenario.expectedCasts} Wind Surge ${status.scenario.expectedCasts === 1 ? "cast" : "casts"}, then scythe.` : "Scythe the boss whenever the route allows."} Keep attacking through the stun, return to start, then restart. At most one input per tick. Changing attack mode restarts the scenario.</small>
+        <small>{status.attackMode === "wind-surge" ? `Harm staff: ${status.scenario.expectedCasts} Wind Surge ${status.scenario.expectedCasts === 1 ? "cast" : "casts"}, then scythe.` : "Scythe the boss whenever the route allows."} Keep attacking through the stun and return to start for the next sword cycle. At most one input per tick. Changing attack mode restarts the scenario.</small>
         <small>Charge can land through tick {ZEKE_RULES.swords.impactAfter.value + 1}, counting spawn as tick 1. Provisional timing.</small>
       </section>}
       <section ref={panel} id="route_scenarios" aria-labelledby="route_scenarios_title" hidden={!open}>
         <div className="route_scenarios_heading"><h2 id="route_scenarios_title">Choose a scenario</h2><button type="button" onClick={() => setVisiblePanel(status.kind === "disabled" ? "closed" : "status")} aria-label="Close scenarios">Close</button></div>
-        <p>Practice one pattern on repeat. Show the path or choose Watch automatic demo to watch the simulator control the tank.</p>
+        <p>Practice the same pattern each sword cycle. Show the path or choose Watch automatic demo to watch the simulator control the tank.</p>
         <div className="route_scenario_grid">
           {ZEKE_ROUTE_SCENARIOS.map((scenario) => <button type="button" key={scenario.id} data-scenario={scenario.id} aria-label={`Select ${scenario.label}`} aria-pressed={status.kind !== "disabled" && status.scenario.id === scenario.id} disabled={!ready} onClick={() => choose(scenario.id)}>
             <ScenarioIcon scenario={scenario} />

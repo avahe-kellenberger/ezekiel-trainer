@@ -7,7 +7,7 @@ import { ZEKE_RULES } from "./ZekeRules";
 export type ZekeRouteId = "cross-2-2" | "cross-5-2" | "cross-8-2" | "cross-2-5" | "cross-8-5" | "cross-2-8" | "cross-5-8" | "cross-8-8" | "parallel-x" | "parallel-y" | "two-rows";
 export type ZekeRouteClick = Readonly<{ at: TickSpan; to: Tile }>;
 export type ZekeRouteReturnPlan = Readonly<{ lead: TickSpan; actions: readonly ZekeTimedRouteAction[] }>;
-export type ZekeRouteScenario = Readonly<{ id: ZekeRouteId; label: string; pattern: SwordPattern; actions: readonly ZekeTimedRouteAction[]; returnPlan: ZekeRouteReturnPlan; recoveryReturnPlan: ZekeRouteReturnPlan; openingActions: readonly ZekeTimedRouteAction[]; clicks: readonly ZekeRouteClick[]; trace: readonly Tile[]; expectedHits: number; expectedCasts: number }>;
+export type ZekeRouteScenario = Readonly<{ id: ZekeRouteId; label: string; pattern: SwordPattern; meleeApproach: "first-impact" | "final-impact"; actions: readonly ZekeTimedRouteAction[]; returnPlan: ZekeRouteReturnPlan; recoveryReturnPlan: ZekeRouteReturnPlan; openingActions: readonly ZekeTimedRouteAction[]; clicks: readonly Tile[]; trace: readonly Tile[]; expectedHits: number; expectedCasts: number }>;
 
 const openingActions: readonly ZekeTimedRouteAction[] = [
   { at: span(1), action: { kind: "attack-boss" } },
@@ -15,47 +15,20 @@ const openingActions: readonly ZekeTimedRouteAction[] = [
   { at: span(15), action: { kind: "equip", weapon: "harm" } },
 ];
 
-function scenario(data: Omit<ZekeRouteScenario, "clicks" | "openingActions" | "returnPlan" | "recoveryReturnPlan">): ZekeRouteScenario {
-  const lastCast = Math.max(...data.actions.filter(({ action }) => action.kind === "attack-sword").map(({ at }) => at));
-  const lastAttack = Math.max(...data.actions.filter(({ action }) => action.kind === "attack-boss").map(({ at }) => at));
-  const approach = data.actions.filter(({ at, action }) => action.kind === "move" && at > lastCast && at < lastAttack);
-  const home = data.actions.filter(({ at, action }) => action.kind === "move" && at > lastAttack);
-  const firstHome = home[0];
-  if (!firstHome) throw new Error(`Route ${data.id} has no return home.`);
-  const firstMove = ZEKE_RULES.autos.recoveryFirstAfterStun.value + 1;
-  const returnGap = firstHome.at - lastAttack;
-  const recoveryActions: readonly ZekeTimedRouteAction[] = [
-    ...approach.map(({ action }, index) => ({ at: span(firstMove + index), action })),
-    ...home.map(({ action }, index) => ({ at: span(firstMove + Math.max(0, approach.length - 1) + returnGap + index), action })),
-  ];
-  let returnActions: readonly ZekeTimedRouteAction[];
-  if (data.id === "cross-2-8") {
-    const lure = approach.at(-1);
-    if (!lure) throw new Error("Lower Left has no return approach.");
-    returnActions = [
-      { at: span(0), action: lure.action },
-      ...home.map(({ action }, index) => ({ at: span(firstMove + index), action })),
-    ];
-  } else if (data.id === "parallel-y") {
-    const [lure, turn] = approach.slice(-2);
-    if (!lure || !turn) throw new Error("Vertical sweep has no return approach.");
-    const secondAuto = ZEKE_RULES.autos.recoveryFirstAfterStun.value + ZEKE_RULES.autos.interval.value;
-    returnActions = [
-      { at: span(firstMove), action: lure.action },
-      { at: span(secondAuto - 1), action: turn.action },
-      { at: span(secondAuto + 1), action: firstHome.action },
-    ];
-  } else {
-    returnActions = recoveryActions;
-  }
-  const returnPlan = { lead: span(data.id === "cross-2-8" ? 1 : 0), actions: returnActions };
-  const recoveryReturnPlan = data.id === "cross-2-8" ? { lead: span(0), actions: recoveryActions } : returnPlan;
-  return { ...data, returnPlan, recoveryReturnPlan, openingActions, clicks: data.actions.flatMap(({ at, action }) => action.kind === "move" ? [{ at, to: action.to }] : []) };
+function scenario(data: Omit<ZekeRouteScenario, "clicks" | "trace" | "openingActions" | "recoveryReturnPlan">, recoveryReturnPlan: ZekeRouteReturnPlan = data.returnPlan): ZekeRouteScenario {
+  const moves = [...data.actions, ...data.returnPlan.actions].flatMap(({ action }) => action.kind === "move" ? [action.to] : []);
+  const clicks = moves.filter((to, index) => {
+    const previous = moves[index - 1];
+    return previous === undefined || to.x !== previous.x || to.y !== previous.y;
+  });
+  const trace = [ZEKE_RULES.arena.playerSpawn.value, ...clicks];
+  return { ...data, recoveryReturnPlan, openingActions, clicks, trace };
 }
 
 export const ZEKE_ROUTE_SCENARIOS: readonly ZekeRouteScenario[] = [
   scenario({
     id: "cross-2-2", label: "Upper left", pattern: { kind: "cross", row: 2, column: 2 }, expectedHits: 4, expectedCasts: 4,
+    meleeApproach: "final-impact",
     actions: [
       { at: span(1), action: { kind: "attack-sword", index: 1 } },
       { at: span(2), action: { kind: "move", to: tile(2, 7) } },
@@ -68,15 +41,14 @@ export const ZEKE_ROUTE_SCENARIOS: readonly ZekeRouteScenario[] = [
       { at: span(12), action: { kind: "move", to: tile(1, 4) } },
       { at: span(13), action: { kind: "attack-sword", index: 0 } },
       { at: span(14), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(15), action: { kind: "equip", weapon: "scythe" } },
-      { at: span(28), action: { kind: "attack-boss" } },
-      { at: span(33), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(34), action: { kind: "equip", weapon: "harm" } },
     ],
-    trace: [tile(4, 7), tile(2, 7), tile(2, 5), tile(2, 3), tile(3, 1), tile(1, 2), tile(1, 4), tile(4, 7)],
+    returnPlan: { lead: span(0), actions: [
+      { at: span(2), action: { kind: "move", to: tile(4, 7) } },
+    ] },
   }),
   scenario({
     id: "cross-5-2", label: "Upper middle", pattern: { kind: "cross", row: 2, column: 5 }, expectedHits: 4, expectedCasts: 4,
+    meleeApproach: "final-impact",
     actions: [
       { at: span(1), action: { kind: "attack-sword", index: 0 } },
       { at: span(2), action: { kind: "move", to: tile(2, 7) } },
@@ -89,16 +61,15 @@ export const ZEKE_ROUTE_SCENARIOS: readonly ZekeRouteScenario[] = [
       { at: span(12), action: { kind: "move", to: tile(7, 1) } },
       { at: span(13), action: { kind: "attack-sword", index: 2 } },
       { at: span(14), action: { kind: "move", to: tile(3, 5) } },
-      { at: span(15), action: { kind: "equip", weapon: "scythe" } },
-      { at: span(26), action: { kind: "attack-boss" } },
-      { at: span(30), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(33), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(34), action: { kind: "equip", weapon: "harm" } },
     ],
-    trace: [tile(4, 7), tile(2, 7), tile(2, 5), tile(2, 3), tile(3, 1), tile(5, 1), tile(7, 1), tile(3, 5), tile(4, 7)],
+    returnPlan: { lead: span(0), actions: [
+      { at: span(0), action: { kind: "move", to: tile(3, 5) } },
+      { at: span(2), action: { kind: "move", to: tile(4, 7) } },
+    ] },
   }),
   scenario({
     id: "cross-8-2", label: "Upper right", pattern: { kind: "cross", row: 2, column: 8 }, expectedHits: 4, expectedCasts: 4,
+    meleeApproach: "final-impact",
     actions: [
       { at: span(1), action: { kind: "attack-sword", index: 0 } },
       { at: span(2), action: { kind: "move", to: tile(2, 7) } },
@@ -108,21 +79,19 @@ export const ZEKE_ROUTE_SCENARIOS: readonly ZekeRouteScenario[] = [
       { at: span(7), action: { kind: "move", to: tile(4, 2) } },
       { at: span(8), action: { kind: "move", to: tile(6, 2) } },
       { at: span(9), action: { kind: "attack-sword", index: 3 } },
-      { at: span(10), action: { kind: "move", to: tile(8, 4) } },
-      { at: span(11), action: { kind: "move", to: tile(9, 2) } },
+      { at: span(10), action: { kind: "move", to: tile(9, 2) } },
       { at: span(12), action: { kind: "move", to: tile(9, 4) } },
       { at: span(13), action: { kind: "attack-sword", index: 1 } },
       { at: span(14), action: { kind: "move", to: tile(5, 6) } },
-      { at: span(15), action: { kind: "equip", weapon: "scythe" } },
-      { at: span(27), action: { kind: "attack-boss" } },
-      { at: span(31), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(33), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(34), action: { kind: "equip", weapon: "harm" } },
     ],
-    trace: [tile(4, 7), tile(2, 7), tile(2, 5), tile(2, 3), tile(4, 2), tile(6, 2), tile(8, 4), tile(9, 2), tile(9, 4), tile(5, 6), tile(4, 7)],
+    returnPlan: { lead: span(0), actions: [
+      { at: span(0), action: { kind: "move", to: tile(5, 6) } },
+      { at: span(2), action: { kind: "move", to: tile(4, 7) } },
+    ] },
   }),
   scenario({
     id: "cross-2-5", label: "Middle left", pattern: { kind: "cross", row: 5, column: 2 }, expectedHits: 4, expectedCasts: 4,
+    meleeApproach: "final-impact",
     actions: [
       { at: span(1), action: { kind: "attack-sword", index: 1 } },
       { at: span(2), action: { kind: "move", to: tile(2, 7) } },
@@ -132,17 +101,15 @@ export const ZEKE_ROUTE_SCENARIOS: readonly ZekeRouteScenario[] = [
       { at: span(9), action: { kind: "attack-sword", index: 3 } },
       { at: span(13), action: { kind: "attack-sword", index: 0 } },
       { at: span(14), action: { kind: "move", to: tile(5, 3) } },
-      { at: span(15), action: { kind: "equip", weapon: "scythe" } },
-      { at: span(26), action: { kind: "attack-boss" } },
-      { at: span(31), action: { kind: "move", to: tile(6, 5) } },
-      { at: span(32), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(33), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(34), action: { kind: "equip", weapon: "harm" } },
     ],
-    trace: [tile(4, 7), tile(2, 7), tile(1, 6), tile(1, 7), tile(5, 3), tile(6, 5), tile(4, 7)],
+    returnPlan: { lead: span(0), actions: [
+      { at: span(0), action: { kind: "move", to: tile(6, 5) } },
+      { at: span(2), action: { kind: "move", to: tile(4, 7) } },
+    ] },
   }),
   scenario({
     id: "cross-8-5", label: "Middle right", pattern: { kind: "cross", row: 5, column: 8 }, expectedHits: 4, expectedCasts: 4,
+    meleeApproach: "final-impact",
     actions: [
       { at: span(1), action: { kind: "attack-sword", index: 0 } },
       { at: span(2), action: { kind: "move", to: tile(6, 9) } },
@@ -153,16 +120,16 @@ export const ZEKE_ROUTE_SCENARIOS: readonly ZekeRouteScenario[] = [
       { at: span(12), action: { kind: "move", to: tile(9, 7) } },
       { at: span(13), action: { kind: "attack-sword", index: 1 } },
       { at: span(14), action: { kind: "move", to: tile(5, 7) } },
-      { at: span(15), action: { kind: "move", to: tile(3, 6) } },
-      { at: span(16), action: { kind: "equip", weapon: "scythe" } },
-      { at: span(28), action: { kind: "attack-boss" } },
-      { at: span(33), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(34), action: { kind: "equip", weapon: "harm" } },
     ],
-    trace: [tile(4, 7), tile(6, 9), tile(7, 8), tile(9, 6), tile(9, 7), tile(5, 7), tile(3, 6), tile(4, 7)],
+    returnPlan: { lead: span(0), actions: [
+      { at: span(1), action: { kind: "move", to: tile(5, 7) } },
+      { at: span(2), action: { kind: "move", to: tile(3, 6) } },
+      { at: span(3), action: { kind: "move", to: tile(4, 7) } },
+    ] },
   }),
   scenario({
     id: "cross-2-8", label: "Lower left", pattern: { kind: "cross", row: 8, column: 2 }, expectedHits: 4, expectedCasts: 4,
+    meleeApproach: "final-impact",
     actions: [
       { at: span(1), action: { kind: "attack-sword", index: 1 } },
       { at: span(2), action: { kind: "move", to: tile(3, 9) } },
@@ -173,16 +140,20 @@ export const ZEKE_ROUTE_SCENARIOS: readonly ZekeRouteScenario[] = [
       { at: span(12), action: { kind: "move", to: tile(1, 6) } },
       { at: span(13), action: { kind: "attack-sword", index: 0 } },
       { at: span(14), action: { kind: "move", to: tile(4, 3) } },
-      { at: span(15), action: { kind: "equip", weapon: "scythe" } },
-      { at: span(28), action: { kind: "attack-boss" } },
-      { at: span(32), action: { kind: "move", to: tile(3, 5) } },
-      { at: span(33), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(34), action: { kind: "equip", weapon: "harm" } },
     ],
-    trace: [tile(4, 7), tile(3, 9), tile(1, 9), tile(1, 7), tile(1, 6), tile(4, 3), tile(3, 5), tile(4, 7)],
-  }),
+    returnPlan: { lead: span(1), actions: [
+      { at: span(0), action: { kind: "move", to: tile(4, 3) } },
+      { at: span(3), action: { kind: "move", to: tile(3, 5) } },
+      { at: span(4), action: { kind: "move", to: tile(4, 7) } },
+    ] },
+  }, { lead: span(0), actions: [
+    { at: span(3), action: { kind: "move", to: tile(4, 3) } },
+    { at: span(7), action: { kind: "move", to: tile(3, 5) } },
+    { at: span(8), action: { kind: "move", to: tile(4, 7) } },
+  ] }),
   scenario({
     id: "cross-5-8", label: "Lower middle", pattern: { kind: "cross", row: 8, column: 5 }, expectedHits: 4, expectedCasts: 4,
+    meleeApproach: "final-impact",
     actions: [
       { at: span(1), action: { kind: "attack-sword", index: 0 } },
       { at: span(2), action: { kind: "move", to: tile(3, 9) } },
@@ -192,17 +163,17 @@ export const ZEKE_ROUTE_SCENARIOS: readonly ZekeRouteScenario[] = [
       { at: span(12), action: { kind: "move", to: tile(7, 9) } },
       { at: span(13), action: { kind: "attack-sword", index: 3 } },
       { at: span(14), action: { kind: "move", to: tile(3, 5) } },
-      { at: span(15), action: { kind: "equip", weapon: "scythe" } },
-      { at: span(25), action: { kind: "move", to: tile(4, 3) } },
-      { at: span(28), action: { kind: "attack-boss" } },
-      { at: span(32), action: { kind: "move", to: tile(3, 5) } },
-      { at: span(33), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(34), action: { kind: "equip", weapon: "harm" } },
     ],
-    trace: [tile(4, 7), tile(3, 9), tile(5, 9), tile(7, 9), tile(3, 5), tile(4, 3), tile(3, 5), tile(4, 7)],
+    returnPlan: { lead: span(0), actions: [
+      { at: span(0), action: { kind: "move", to: tile(3, 5) } },
+      { at: span(2), action: { kind: "move", to: tile(4, 3) } },
+      { at: span(4), action: { kind: "move", to: tile(3, 5) } },
+      { at: span(5), action: { kind: "move", to: tile(4, 7) } },
+    ] },
   }),
   scenario({
     id: "cross-8-8", label: "Lower right", pattern: { kind: "cross", row: 8, column: 8 }, expectedHits: 4, expectedCasts: 4,
+    meleeApproach: "final-impact",
     actions: [
       { at: span(1), action: { kind: "attack-sword", index: 0 } },
       { at: span(2), action: { kind: "move", to: tile(6, 9) } },
@@ -216,16 +187,15 @@ export const ZEKE_ROUTE_SCENARIOS: readonly ZekeRouteScenario[] = [
       { at: span(12), action: { kind: "move", to: tile(9, 6) } },
       { at: span(13), action: { kind: "attack-sword", index: 1 } },
       { at: span(14), action: { kind: "move", to: tile(5, 5) } },
-      { at: span(15), action: { kind: "move", to: tile(3, 5) } },
-      { at: span(16), action: { kind: "equip", weapon: "scythe" } },
-      { at: span(28), action: { kind: "attack-boss" } },
-      { at: span(33), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(34), action: { kind: "equip", weapon: "harm" } },
     ],
-    trace: [tile(4, 7), tile(6, 9), tile(7, 8), tile(5, 9), tile(7, 9), tile(9, 9), tile(9, 7), tile(9, 6), tile(5, 5), tile(3, 5), tile(4, 7)],
+    returnPlan: { lead: span(0), actions: [
+      { at: span(1), action: { kind: "move", to: tile(3, 5) } },
+      { at: span(4), action: { kind: "move", to: tile(4, 7) } },
+    ] },
   }),
   scenario({
     id: "parallel-x", label: "Horizontal sweep", pattern: { kind: "parallel", axis: "x", direction: 1 }, expectedHits: 1, expectedCasts: 1,
+    meleeApproach: "final-impact",
     actions: [
       { at: span(1), action: { kind: "move", to: tile(6, 5) } },
       { at: span(2), action: { kind: "move", to: tile(8, 3) } },
@@ -236,15 +206,15 @@ export const ZEKE_ROUTE_SCENARIOS: readonly ZekeRouteScenario[] = [
       { at: span(8), action: { kind: "attack-boss" } },
       { at: span(14), action: { kind: "move", to: tile(1, 7) } },
       { at: span(16), action: { kind: "move", to: tile(2, 5) } },
-      { at: span(27), action: { kind: "attack-boss" } },
-      { at: span(32), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(33), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(34), action: { kind: "equip", weapon: "harm" } },
     ],
-    trace: [tile(4, 7), tile(6, 5), tile(8, 3), tile(6, 1), tile(4, 3), tile(1, 7), tile(2, 5), tile(4, 7)],
+    returnPlan: { lead: span(0), actions: [
+      { at: span(0), action: { kind: "move", to: tile(2, 5) } },
+      { at: span(2), action: { kind: "move", to: tile(4, 7) } },
+    ] },
   }),
   scenario({
     id: "parallel-y", label: "Vertical sweep", pattern: { kind: "parallel", axis: "y", direction: 1 }, expectedHits: 1, expectedCasts: 1,
+    meleeApproach: "first-impact",
     actions: [
       { at: span(1), action: { kind: "move", to: tile(2, 8) } },
       { at: span(4), action: { kind: "attack-sword", index: 0 } },
@@ -252,31 +222,30 @@ export const ZEKE_ROUTE_SCENARIOS: readonly ZekeRouteScenario[] = [
       { at: span(7), action: { kind: "attack-boss" } },
       { at: span(13), action: { kind: "move", to: tile(1, 8) } },
       { at: span(14), action: { kind: "move", to: tile(4, 4) } },
-      { at: span(15), action: { kind: "move", to: tile(7, 1) } },
-      { at: span(16), action: { kind: "move", to: tile(6, 5) } },
-      { at: span(27), action: { kind: "attack-boss" } },
-      { at: span(32), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(33), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(34), action: { kind: "equip", weapon: "harm" } },
     ],
-    trace: [tile(4, 7), tile(2, 8), tile(1, 8), tile(4, 4), tile(7, 1), tile(6, 5), tile(4, 7)],
+    returnPlan: { lead: span(0), actions: [
+      { at: span(0), action: { kind: "move", to: tile(6, 5) } },
+      { at: span(2), action: { kind: "move", to: tile(4, 7) } },
+    ] },
   }),
   scenario({
     id: "two-rows", label: "Split rows", pattern: { kind: "two-rows" }, expectedHits: 2, expectedCasts: 2,
+    meleeApproach: "final-impact",
     actions: [
       { at: span(2), action: { kind: "move", to: tile(6, 9) } },
       { at: span(3), action: { kind: "attack-sword", index: 0 } },
       { at: span(7), action: { kind: "attack-sword", index: 2 } },
       { at: span(8), action: { kind: "equip", weapon: "scythe" } },
       { at: span(9), action: { kind: "attack-boss" } },
-      { at: span(15), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(18), action: { kind: "move", to: tile(3, 5) } },
-      { at: span(27), action: { kind: "attack-boss" } },
-      { at: span(33), action: { kind: "move", to: tile(4, 7) } },
-      { at: span(34), action: { kind: "equip", weapon: "harm" } },
     ],
-    trace: [tile(4, 7), tile(6, 9), tile(4, 7), tile(3, 5), tile(4, 7)],
-  }),
+    returnPlan: { lead: span(1), actions: [
+      { at: span(0), action: { kind: "move", to: tile(3, 5) } },
+      { at: span(3), action: { kind: "move", to: tile(4, 7) } },
+    ] },
+  }, { lead: span(0), actions: [
+    { at: span(1), action: { kind: "move", to: tile(3, 5) } },
+    { at: span(4), action: { kind: "move", to: tile(4, 7) } },
+  ] }),
 ];
 
 export function parseZekeRouteId(value: string | null): ZekeRouteId | null {

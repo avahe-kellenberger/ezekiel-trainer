@@ -8,7 +8,7 @@ import { tick } from "../../src/sim/brands";
 test.each([
   { charge: 80, until: 41, before: 51, resetAt: 52 },
   { charge: 100, until: 45, before: 52, resetAt: 56 },
-])("manual practice respects the actual recovery deadline for $charge% charge", ({ until, before, resetAt }) => {
+])("manual practice keeps the same actors through the recovery deadline for $charge% charge", ({ until, before, resetAt }) => {
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   Settings.readFromStorage();
@@ -31,7 +31,7 @@ test.each([
     expect(reset).not.toHaveBeenCalled();
     at = resetAt;
     act(() => vi.advanceTimersByTime(100));
-    expect(reset).toHaveBeenCalledOnce();
+    expect(reset).not.toHaveBeenCalled();
   } finally {
     act(() => root.unmount());
     observe.mockRestore();

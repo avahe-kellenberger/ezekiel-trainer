@@ -1,5 +1,5 @@
 import { InputController, Pathing, Player, Settings } from "osrs-sdk";
-import type { Location, MovePace, Region } from "osrs-sdk";
+import type { Location, MovePace, Region, Unit } from "osrs-sdk";
 import { clientCycles } from "../../sim/brands";
 import type { ClientCycles, Tick } from "../../sim/brands";
 import { ZEKE_RULES } from "./ZekeRules";
@@ -11,6 +11,7 @@ export class ZekePlayer extends Player {
   private dodgeTravel: Readonly<{ from: Location; to: Location; startedAt: ClientCycles; duration: ClientCycles }> | null = null;
   private castPose: number | null = null;
   private castSpeed: number | null = null;
+  private visualInteractionTarget: Unit | null = null;
   lastDodge: Readonly<{ tick: Tick; from: Location; to: Location; steps: number }> | null = null;
   constructor(
     region: Region,
@@ -18,7 +19,7 @@ export class ZekePlayer extends Player {
     readonly participantId: string,
     private readonly invincible: () => boolean,
     private readonly dodgeTick: (location: Location) => Tick | null = () => null,
-    private readonly beforeAttackStep: (player: ZekePlayer) => void = () => {},
+    private readonly opportunisticAttackTarget: (player: ZekePlayer) => Unit | null = () => null,
   ) {
     super(region, location);
   }
@@ -27,7 +28,13 @@ export class ZekePlayer extends Player {
     this.pendingDodge = null;
     this.awaitingDodgeConfirmation = null;
     this.dodgeTravel = null;
+    this.visualInteractionTarget = null;
     super.dead();
+  }
+
+  override setAggro(target: Unit | null): void {
+    this.visualInteractionTarget = null;
+    super.setAggro(target);
   }
 
   override drawUILayer(tickPercent: number, projector: Parameters<Player["drawUILayer"]>[1], context: OffscreenCanvasRenderingContext2D, scale: number): void {
@@ -91,7 +98,18 @@ export class ZekePlayer extends Player {
   override clientTick(tickPercent: number, tickTimestamp = window.performance.now()): void {
     const travel = this.dodgeTravel;
     if (!travel) {
-      super.clientTick(tickPercent, tickTimestamp);
+      const target = this.visualInteractionTarget;
+      if (target === null) {
+        super.clientTick(tickPercent, tickTimestamp);
+        return;
+      }
+      const previousTarget = this.aggro ?? null;
+      super.setAggro(target);
+      try {
+        super.clientTick(tickPercent, tickTimestamp);
+      } finally {
+        super.setAggro(previousTarget);
+      }
       return;
     }
     const progress = Math.min(1, (this.region.world.clientTickCounter - travel.startedAt) / travel.duration);
@@ -111,6 +129,7 @@ export class ZekePlayer extends Player {
     this.pendingDodge = null;
     this.awaitingDodgeConfirmation = null;
     this.dodgeTravel = null;
+    this.visualInteractionTarget = null;
     super.setLocation(location);
   }
 
@@ -160,8 +179,20 @@ export class ZekePlayer extends Player {
   }
 
   override attackStep(): void {
-    this.beforeAttackStep(this);
-    super.attackStep();
+    const target = this.opportunisticAttackTarget(this);
+    if (target === null) {
+      super.attackStep();
+      return;
+    }
+    const previousTarget = this.aggro ?? null;
+    const previousDelay = this.attackDelay;
+    super.setAggro(target);
+    try {
+      super.attackStep();
+    } finally {
+      super.setAggro(previousTarget);
+    }
+    if (this.attackDelay > previousDelay) this.visualInteractionTarget = target;
   }
 
   override get attackAnimationId(): number { return this.castPose ?? super.attackAnimationId; }

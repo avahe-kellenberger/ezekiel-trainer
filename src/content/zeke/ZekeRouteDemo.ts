@@ -3,7 +3,7 @@ import type { Tick, TickSpan, Tile } from "../../sim/brands";
 import { ZEKE_ROUTE_SCENARIOS } from "./ZekeRoutePlans";
 import type { ZekeRouteClick, ZekeRouteId, ZekeRouteReturnPlan, ZekeRouteScenario } from "./ZekeRoutePlans";
 import type { ZekeRow } from "./Zeke";
-import type { EncounterState } from "./mechanics";
+import type { EncounterState, SwordHazard } from "./mechanics";
 import { nextStarAt } from "./mechanics";
 import { ZEKE_RULES } from "./ZekeRules";
 import { validateZekeRouteActions } from "./ZekeRouteActions";
@@ -13,12 +13,12 @@ type RouteProgress = Readonly<{ scenario: ZekeRouteScenario; starOffset: TickSpa
 export type ZekeRouteAttackMode = "scythe" | "wind-surge";
 type PlayingStage =
   | Readonly<{ kind: "route"; returnPlan: ZekeRouteReturnPlan }>
-  | Readonly<{ kind: "returning"; returnPlan: ZekeRouteReturnPlan; started: Tick; stunnedUntil: Tick }>;
+  | Readonly<{ kind: "returning"; returnPlan: ZekeRouteReturnPlan; started: Tick; stunnedUntil: Tick }>
+  | Readonly<{ kind: "awaiting-star" }>;
 type RouteState =
   | Readonly<{ kind: "disabled" }>
   | (RouteProgress & Readonly<{ kind: "practice" }>)
   | (RouteProgress & Readonly<{ kind: "playing"; stage: PlayingStage }>)
-  | (RouteProgress & Readonly<{ kind: "complete"; control: "practice" | "playing" }>)
   | (RouteProgress & Readonly<{ kind: "failed"; reason: string }>);
 
 export type ZekeRouteDemoStatus =
@@ -34,7 +34,7 @@ export class ZekeRouteDemo {
   private bossSwordHits = 0;
   private meleeAutos = 0;
 
-  constructor(id: ZekeRouteId | null, autoplay: boolean, readonly attackMode: ZekeRouteAttackMode = "scythe", cycle = 1) {
+  constructor(id: ZekeRouteId | null, autoplay: boolean, readonly attackMode: ZekeRouteAttackMode = "scythe") {
     const scenario = ZEKE_ROUTE_SCENARIOS.find((entry) => entry.id === id);
     if (scenario) {
       validateZekeRouteActions(scenario.openingActions);
@@ -43,7 +43,7 @@ export class ZekeRouteDemo {
       validateZekeRouteActions(scenario.recoveryReturnPlan.actions);
     }
     this.status = scenario
-      ? autoplay ? { kind: "playing", stage: { kind: "route", returnPlan: scenario.returnPlan }, scenario, starOffset: null, cycle } : { kind: "practice", scenario, starOffset: null, cycle }
+      ? autoplay ? { kind: "playing", stage: { kind: "route", returnPlan: scenario.returnPlan }, scenario, starOffset: null, cycle: 1 } : { kind: "practice", scenario, starOffset: null, cycle: 1 }
       : { kind: "disabled" };
   }
 
@@ -73,13 +73,17 @@ export class ZekeRouteDemo {
   get pattern() { return this.status.kind === "disabled" ? null : this.status.scenario.pattern; }
 
   beforeTick(at: Tick, encounter: EncounterState, scytheReady: boolean): ZekeRouteAction | null {
-    if (this.status.kind === "disabled" || this.status.kind === "failed" || this.status.kind === "complete") return null;
+    if (this.status.kind === "disabled" || this.status.kind === "failed") return null;
     const starOffset = this.starStarted === null ? null : span(at - this.starStarted);
     this.status = { ...this.status, starOffset };
     if (this.status.kind !== "playing" || this.dispatchedAt === at) return null;
     this.dispatchedAt = at;
     const stage = this.status.stage;
     switch (stage.kind) {
+      case "awaiting-star": {
+        const nextStar = nextStarAt(encounter.phase);
+        return this.attackMode === "wind-surge" && nextStar !== null && at >= nextStar - 1 && at <= nextStar ? { kind: "equip", weapon: "harm" } : null;
+      }
       case "returning":
         return stage.returnPlan.actions.find((candidate) => candidate.at === at - stage.started)?.action ?? null;
       case "route": {
@@ -107,8 +111,26 @@ export class ZekeRouteDemo {
     return null;
   }
 
-  canIssueScythe(at: Tick): boolean {
-    return this.status.kind === "playing" && this.status.stage.kind === "route" && this.attackMode === "scythe" && !this.issued.some((entry) => entry.tick === at);
+  canUseScythe(at: Tick, encounter: EncounterState, attackSpeed: TickSpan): boolean {
+    if (this.status.kind !== "playing") return false;
+    if (this.attackMode === "scythe") return true;
+    const nextStar = nextStarAt(encounter.phase);
+    if (nextStar === null) return true;
+    const firstCast = this.status.scenario.actions.find(({ action }) => action.kind === "attack-sword");
+    return firstCast === undefined || at + attackSpeed <= nextStar + firstCast.at;
+  }
+
+  canApproachStun(at: Tick, encounter: EncounterState): boolean {
+    if (this.status.kind !== "playing" || this.status.stage.kind !== "route") return false;
+    if (this.stunRecovery(encounter) !== null) return true;
+    if (encounter.swords.length === 0) return false;
+    const impactsByTick = (sword: SwordHazard): boolean => sword.status === "impacted" || sword.status === "spent" || sword.status === "flying" && sword.impactAt <= at;
+    const approach = this.status.scenario.meleeApproach;
+    switch (approach) {
+      case "first-impact": return encounter.swords.some(impactsByTick);
+      case "final-impact": return encounter.swords.every(impactsByTick);
+      default: { const unhandled: never = approach; return unhandled; }
+    }
   }
 
   stunRecovery(encounter: EncounterState): Tick | null {
@@ -122,7 +144,7 @@ export class ZekeRouteDemo {
   }
 
   afterTick(row: ZekeRow, activeStepUnder: boolean, boss: Tile, tank: Tile): boolean {
-    if (this.status.kind === "disabled" || this.status.kind === "failed" || this.status.kind === "complete") return false;
+    if (this.status.kind === "disabled" || this.status.kind === "failed") return false;
     let replenish = false;
     if (activeStepUnder) this.fail("Tank stepped under the boss while he could move.");
     for (const event of row.events) {
@@ -133,12 +155,18 @@ export class ZekeRouteDemo {
           break;
         case "star-tell": {
           const state = this.readState();
-          if (state.kind === "disabled" || state.kind === "failed" || state.kind === "complete") break;
+          if (state.kind === "disabled" || state.kind === "failed") break;
+          if (this.starStarted !== null && state.kind === "playing" && state.stage.kind !== "awaiting-star") {
+            this.fail("The route did not complete its melee return before the next star.");
+            break;
+          }
           const cycle: number = this.starStarted === null ? state.cycle : state.cycle + 1;
           this.starStarted = tick(row.tick);
           this.bossSwordHits = 0;
           this.meleeAutos = 0;
-          this.status = { ...state, starOffset: span(0), cycle };
+          this.status = state.kind === "playing"
+            ? { ...state, starOffset: span(0), cycle, stage: { kind: "route", returnPlan: state.scenario.returnPlan } }
+            : { ...state, starOffset: span(0), cycle };
           replenish = true;
           break;
         }
@@ -151,14 +179,11 @@ export class ZekeRouteDemo {
       }
     }
     const state = this.readState();
-    if (state.kind === "disabled" || state.kind === "failed" || state.kind === "complete" || this.starStarted === null) return false;
+    if (state.kind === "disabled" || state.kind === "failed" || this.starStarted === null) return false;
     const starOffset = span(row.tick - this.starStarted);
     this.status = { ...state, starOffset };
     if (row.phase.kind !== "recovery" || row.phase.recovery !== "weaken" || row.tick < row.phase.stunnedUntil) return replenish;
-    if (state.kind === "practice") {
-      this.status = { ...state, starOffset, kind: "complete", control: "practice" };
-      return replenish;
-    }
+    if (state.kind === "practice") return replenish;
     if (state.stage.kind !== "returning") return replenish;
     const home = tank.x === ZEKE_RULES.arena.playerSpawn.value.x && tank.y === ZEKE_RULES.arena.playerSpawn.value.y
       && boss.x === ZEKE_RULES.arena.bossSpawn.value.x && boss.y === ZEKE_RULES.arena.bossSpawn.value.y;
@@ -172,7 +197,7 @@ export class ZekeRouteDemo {
       this.fail(`Expected ${state.scenario.expectedHits} boss sword hits; observed ${this.bossSwordHits}.`);
     } else if (!this.combatComplete(state.scenario, state.cycle)) {
       this.fail(this.attackMode === "wind-surge" ? "The scheduled sword casts, landings, or return to scythe did not complete." : "The scythe route did not land an attack on the boss.");
-    } else this.status = { ...state, starOffset, kind: "complete", control: "playing" };
+    } else this.status = { ...state, starOffset, stage: { kind: "awaiting-star" } };
     return replenish;
   }
 

@@ -14,6 +14,7 @@ function practice(config: ZekeConfig = {}) {
   const trainer = new TrainerInstance(region, { readyTimer: 0 });
   trainer.mount(document.createElement("canvas"), document.createElement("div"));
   vi.spyOn(region.world, "startLoop").mockImplementation(() => {});
+  region.world.startTicking();
   if (!config.routeDemo) region.world.tickWorld(region.world.getReadyTimer - 1);
   const actors = () => {
     const boss = region.primaryBoss;
@@ -133,7 +134,7 @@ describe("native route practice", () => {
     } finally { observe.mockRestore(); drill.trainer.dispose(); }
   });
 
-  test.each(modes)("Lower Left returns both native actors home before completion in %s", (attackMode) => {
+  test.each(modes)("Lower Left returns both native actors home before the next star in %s", (attackMode) => {
     const drill = practice({ routeDemo: "cross-2-8", routeAutoplay: true, routeAttackMode: attackMode });
     const { boss, player } = drill.actors();
     const swings: number[] = [];
@@ -152,9 +153,9 @@ describe("native route practice", () => {
       expect(player.location).toEqual({ x: 4, y: 7 });
       expect(boss.location).toEqual({ x: 4, y: 6 });
       expect(drill.region.routeDemoSnapshot().kind).toBe("playing");
-      expect(swings).toEqual(attackMode === "scythe" ? [1, 6, 11, 16, 22, 29, 34, 39] : [1, 6, 11, 33, 38]);
-      for (let at = boss.encounterTick + 1; at <= phase.stunnedUntil + 11 && drill.region.routeDemoSnapshot().kind === "playing"; at++) drill.tickTo(at);
-      expect(drill.region.routeDemoSnapshot()).toMatchObject({ kind: "complete", control: "playing" });
+      expect(swings).toEqual(attackMode === "scythe" ? [1, 6, 11, 16, 22, 27, 32, 37, 43] : [1, 6, 11, 33, 38, 43]);
+      for (let at = boss.encounterTick + 1; at <= phase.stunnedUntil + 10; at++) drill.tickTo(at);
+      expect(drill.region.routeDemoSnapshot()).toMatchObject({ kind: "playing", stage: { kind: "awaiting-star" } });
       expect(player.location).toEqual({ x: 4, y: 7 });
       expect(boss.location).toEqual({ x: 4, y: 6 });
       expect(boss.rows.flatMap(({ events }) => events).filter((event) => event.kind === "auto").every((event) => event.style === "melee")).toBe(true);
@@ -162,135 +163,124 @@ describe("native route practice", () => {
   });
 
   test.each(ZEKE_ROUTE_SCENARIOS.flatMap((scenario) => modes.map((attackMode) => ({ scenario, attackMode }))))(
-    "$scenario.id attacks throughout stun, returns both actors home in $attackMode, and restarts through the native trainer",
+    "$scenario.id repeats three safe cycles in one fight with $attackMode and visibly finishes each return",
     ({ scenario, attackMode }) => {
       const drill = practice({ routeDemo: scenario.id, routeAutoplay: true, routeAttackMode: attackMode });
+      const { boss, player } = drill.actors();
+      const reset = vi.spyOn(drill.trainer, "reset");
+      const swings: number[] = [];
+      const opportunities: number[] = [];
+      const stars: number[] = [];
+      const completed = new Set<number>();
+      const stuns = new Map<number, Readonly<{ started: number; until: number }>>();
+      const impacts = new Map<number, number>();
+      const didAttack = player.didAttack.bind(player);
+      const attackStep = player.attackStep.bind(player);
+      const observeSwings = vi.spyOn(player, "didAttack").mockImplementation(() => {
+        if (player.equipment.weapon instanceof ScytheOfVitur && player.aggro === boss) swings.push(boss.encounterTick);
+        didAttack();
+      });
+      const observeOpportunities = vi.spyOn(player, "attackStep").mockImplementation(() => {
+        const phase = boss.encounter.phase;
+        const duringStun = phase.kind === "recovery" && phase.recovery === "weaken" && boss.encounterTick < phase.stunnedUntil;
+        const destination = player.destinationLocation;
+        const moving = destination && (destination.x !== player.location.x || destination.y !== player.location.y);
+        if (player.equipment.weapon instanceof ScytheOfVitur && player.attackDelay === 0 && (duringStun || !moving)
+          && LineOfSight.playerHasLineOfSightOfMob(drill.region, player.location.x, player.location.y, boss, player.attackRange)) opportunities.push(boss.encounterTick);
+        attackStep();
+      });
+      let now = window.performance.now();
+      const clock = vi.spyOn(window.performance, "now").mockImplementation(() => now);
       try {
-        for (let cycle = 1; cycle <= 3; cycle++) {
-          const { boss, player } = drill.actors();
-          const swings: number[] = [];
-          const opportunities: number[] = [];
-          const inputs: number[] = [];
-          let inputTick = 0;
-          let inputDepth = 0;
-          const observeInput = (invoke: () => void) => {
-            if (inputDepth === 0) inputs.push(inputTick);
-            inputDepth++;
-            try { invoke(); } finally { inputDepth--; }
-          };
-          const restores: (() => void)[] = [];
-          const dispatch = drill.region.beforeNpcTurns.bind(drill.region);
-          restores.push(vi.spyOn(drill.region, "beforeNpcTurns").mockImplementation(() => {
-            inputTick = boss.encounterTick + 1;
-            dispatch();
-          }).mockRestore);
-          const move = player.moveTo.bind(player);
-          const target = player.setAggro.bind(player);
-          restores.push(vi.spyOn(player, "moveTo").mockImplementation((...args) => observeInput(() => move(...args))).mockRestore);
-          restores.push(vi.spyOn(player, "setAggro").mockImplementation((...args) => observeInput(() => target(...args))).mockRestore);
-          for (const item of new Set([...player.inventory, player.equipment.weapon])) {
-            if (!item) continue;
-            const click = item.inventoryLeftClick.bind(item);
-            restores.push(vi.spyOn(item, "inventoryLeftClick").mockImplementation((...args) => observeInput(() => click(...args))).mockRestore);
+        drill.region.world.startTicking();
+        for (let at = 1; at <= 250 && stars.length < 4; at++) {
+          const previousTick = boss.encounterTick;
+          drill.tickTo(at);
+          expect(boss.encounterTick).toBe(previousTick + 1);
+          expect(drill.actors().boss).toBe(boss);
+          expect(drill.actors().player).toBe(player);
+          expect(drill.trainer.getSnapshot().player).toBe(player);
+          expect(drill.region.world.getReadyTimer).toBe(0);
+          expect(drill.region.world.isPaused).toBe(false);
+          const status = drill.region.routeDemoSnapshot();
+          expect(status.kind).toBe("playing");
+          if (status.kind !== "playing") throw new Error(`Native route stopped at ${at}.`);
+          const row = boss.rows.at(-1);
+          if (!row) throw new Error("Missing native fight row.");
+          expect(row.events.some((event) => event.kind === "star-hit" || event.kind === "sword-hit-player" || event.kind === "swords-missed" || event.kind === "boss-heal")).toBe(false);
+          expect(row.events.filter((event) => event.kind === "auto").every((event) => event.style === "melee")).toBe(true);
+          for (const event of row.events) {
+            if (event.kind !== "star-tell") continue;
+            expect(event.pattern).toEqual(scenario.pattern);
+            if (stars.length > 0) {
+              expect(completed.has(stars.length)).toBe(true);
+              expect(player.location).toEqual({ x: 4, y: 7 });
+              expect(boss.location).toEqual({ x: 4, y: 6 });
+              expect(player.visualPath).toHaveLength(0);
+              expect(boss.visualPath).toHaveLength(0);
+            }
+            stars.push(at);
+            expect(status.cycle).toBe(stars.length);
+            if (attackMode === "wind-surge") expect(player.equipment.weapon).toBeInstanceOf(HarmonisedNightmareStaff);
           }
-          const didAttack = player.didAttack.bind(player);
-          const beforeAttack = player.attackStep.bind(player);
-          const observeSwings = vi.spyOn(player, "didAttack").mockImplementation(() => {
-            if (player.equipment.weapon instanceof ScytheOfVitur && player.aggro === boss) swings.push(boss.encounterTick);
-            didAttack();
-          });
-          const observeOpportunities = vi.spyOn(player, "attackStep").mockImplementation(() => {
-            const phase = boss.encounter.phase;
-            const duringStun = phase.kind === "recovery" && phase.recovery === "weaken" && boss.encounterTick < phase.stunnedUntil;
-            const destination = player.destinationLocation;
-            const moving = destination && (destination.x !== player.location.x || destination.y !== player.location.y);
-            if (player.equipment.weapon instanceof ScytheOfVitur && player.attackDelay === 0 && (duringStun || !moving)
-              && LineOfSight.playerHasLineOfSightOfMob(drill.region, player.location.x, player.location.y, boss, player.attackRange)) opportunities.push(boss.encounterTick);
-            beforeAttack();
-          });
-          try {
-            expect(drill.trainer.getSnapshot().player).toBe(player);
-            expect(drill.region.world.getReadyTimer).toBe(0);
-            drill.region.world.startTicking();
-            drill.tickTo(31);
-            const phase = boss.encounter.phase;
-            if (phase.kind !== "recovery" || phase.recovery !== "weaken") throw new Error("Native route did not stun the boss.");
-            let until = phase.stunnedUntil;
-            let allSwordsImpactedAt: number | null = null;
-            while (boss.encounterTick < until) {
-              expect(drill.region.routeDemoSnapshot()).toMatchObject({ kind: "playing", attackMode, cycle });
-              const current = boss.encounter;
-              if (allSwordsImpactedAt === null && current.swords.every((sword) => sword.status === "impacted" || sword.status === "spent")) allSwordsImpactedAt = boss.encounterTick;
-              drill.tickTo(boss.encounterTick + 1);
-              if (boss.encounter.phase.kind === "recovery") until = boss.encounter.phase.stunnedUntil;
-            }
-            expect(drill.region.routeDemoSnapshot()).toMatchObject({ kind: "playing", stage: { kind: "returning", stunnedUntil: until } });
-            while (drill.region.routeDemoSnapshot().kind === "playing" && boss.encounterTick < until + 11) drill.tickTo(boss.encounterTick + 1);
-            const status = drill.region.routeDemoSnapshot();
-            expect(status).toMatchObject({ kind: "complete", control: "playing", attackMode, scenario, cycle });
-            if (status.kind !== "complete") throw new Error("Native route did not complete.");
-            expect(drill.region.world.isPaused).toBe(true);
-            expect(boss.encounterTick).toBeGreaterThan(until);
-            expect(boss.encounterTick).toBeLessThan(until + 12);
-            expect(player.location).toEqual({ x: 4, y: 7 });
-            expect(boss.location).toEqual({ x: 4, y: 6 });
-            const stunnedSwings = swings.filter((at) => at > phase.started && at < until);
-            expect(stunnedSwings.length).toBeGreaterThanOrEqual(1);
-            expect(stunnedSwings.every((at, index) => index === 0 || at - (stunnedSwings[index - 1] ?? at) === player.attackSpeed)).toBe(true);
-            const returnStarted = until - scenario.returnPlan.lead;
-            expect(swings.filter((at) => at >= returnStarted)).toEqual([]);
-            expect(status.combat.some((event) => event.kind === "scythe-hit" && event.tick > phase.started && event.tick <= until)).toBe(true);
-            expect(new Set(status.issuedActions.map((entry) => entry.tick)).size).toBe(status.issuedActions.length);
-            expect(inputs).toEqual(status.issuedActions.map((entry) => entry.tick));
-            expect(status.issuedActions.filter(({ action }) => action.kind === "stop-attacking")).toHaveLength(scenario.id === "cross-2-8" ? 0 : 1);
-            expect(player.equipment.weapon).toBeInstanceOf(ScytheOfVitur);
-            expect(player.manualSpellCastSelection).toBeFalsy();
-            const casts = status.combat.filter((event) => event.kind === "cast");
-            const landed = status.combat.filter((event) => event.kind === "sword-hit");
-            const expectedCasts = attackMode === "wind-surge" ? scenario.expectedCasts : 0;
-            expect(casts).toHaveLength(expectedCasts);
-            expect(landed).toHaveLength(expectedCasts);
-            for (const cast of casts) {
-              expect(cast.damage).toBe(80);
-              expect(cast.landingAt - cast.tick).toBeGreaterThanOrEqual(2);
-              expect(landed).toContainEqual(expect.objectContaining({ tick: cast.landingAt, swordIndex: cast.swordIndex, damage: cast.damage }));
-            }
-            const events = boss.rows.flatMap((row) => row.events);
-            expect(events.filter((event) => event.kind === "sword-hit-boss")).toHaveLength(scenario.expectedHits);
-            expect(events.some((event) => event.kind === "star-hit" || event.kind === "sword-hit-player" || (event.kind === "auto" && event.style === "magic"))).toBe(false);
-            expect(events.filter((event) => event.kind === "star-tell")).toEqual([{ kind: "star-tell", pattern: scenario.pattern }]);
-            expect(allSwordsImpactedAt).not.toBeNull();
-            if (allSwordsImpactedAt === null) throw new Error("Swords never finished their native impacts.");
-            const firstStar = boss.rows.find((row) => row.events.some((event) => event.kind === "star-tell"));
-            if (!firstStar) throw new Error("Missing native star.");
-            expect(boss.rows.filter((row) => row.tick > firstStar.tick).flatMap((row) => row.events).filter((event) => event.kind === "auto" && event.style === "melee")).toHaveLength(4);
-            const expectedPath = scenario.actions.filter(({ action, at }) => action.kind === "move" && at + firstStar.tick <= allSwordsImpactedAt);
-            const actualPath = status.issuedActions.filter((entry) => entry.starOffset !== null && entry.tick <= allSwordsImpactedAt && entry.action.kind === "move");
-            expect(actualPath.map(({ starOffset, action }) => ({ at: starOffset, action }))).toEqual(expectedPath);
-            const returnMoves = status.issuedActions.filter((entry) => entry.tick >= returnStarted && entry.action.kind === "move");
-            expect(returnMoves.length).toBeGreaterThan(0);
-            for (const { action } of returnMoves) expect(scenario.actions.map((entry) => entry.action)).toContainEqual(action);
-            expect(status.issuedActions.filter((entry) => entry.tick >= returnStarted).every(({ action }) => action.kind === "move" || action.kind === "stop-attacking")).toBe(true);
-            expect(opportunities.filter((at) => at >= allSwordsImpactedAt && at < until && !swings.includes(at) && !status.issuedActions.some((entry) => entry.tick === at))).toEqual([]);
-            if (attackMode === "scythe") {
-              expect(swings.slice(0, 3)).toEqual([1, 6, 11]);
-              expect(status.combat.every((event) => event.kind === "scythe-hit")).toBe(true);
-              expect(opportunities.filter((at) => at < until && !swings.includes(at) && !status.issuedActions.some((entry) => entry.tick === at))).toEqual([]);
-            }
-            const replaced = drill.trainer.reset();
-            expect(replaced).not.toBe(player);
-            expect(drill.trainer.getSnapshot().player).toBe(replaced);
-            expect(drill.region.players[0]).toBe(replaced);
-            expect(replaced.location).toEqual({ x: 4, y: 7 });
-            expect(drill.actors().boss.location).toEqual({ x: 4, y: 6 });
-            expect(drill.region.routeDemoSnapshot()).toMatchObject({ kind: "playing", attackMode, cycle: cycle + 1, starOffset: null });
-          } finally {
-            restores.reverse().forEach((restore) => restore());
-            observeOpportunities.mockRestore();
-            observeSwings.mockRestore();
+          const phase = boss.encounter.phase;
+          if (stars.length > 0) expect(phase.kind).not.toBe("opening");
+          if (phase.kind === "recovery" && phase.recovery === "weaken") stuns.set(status.cycle, { started: phase.started, until: phase.stunnedUntil });
+          if (stars.length > 0 && !impacts.has(status.cycle) && boss.encounter.swords.length > 0 && boss.encounter.swords.every((sword) => sword.status === "impacted" || sword.status === "spent")) impacts.set(status.cycle, at);
+          for (let client = 0; client < 30; client++) {
+            drill.region.world.tickClient(client / 30, now);
+            now += 20;
+          }
+          if (status.stage.kind !== "awaiting-star") continue;
+          expect(player.location).toEqual({ x: 4, y: 7 });
+          expect(boss.location).toEqual({ x: 4, y: 6 });
+          if (player.visualPath.length > 0 || boss.visualPath.length > 0) continue;
+          expect(player.getPerceivedLocation(0)).toMatchObject(player.location);
+          expect(boss.getPerceivedLocation(0)).toMatchObject(boss.location);
+          if (completed.has(status.cycle)) continue;
+          completed.add(status.cycle);
+          const firstStar = stars[status.cycle - 1];
+          const stun = stuns.get(status.cycle);
+          const impactedAt = impacts.get(status.cycle);
+          if (firstStar === undefined || !stun || impactedAt === undefined) throw new Error("Missing cycle mechanics.");
+          const combat = status.combat.filter((event) => event.cycle === status.cycle);
+          const issued = status.issuedActions.filter((event) => event.cycle === status.cycle);
+          const events = boss.rows.filter((entry) => entry.tick >= firstStar && entry.tick <= at).flatMap((entry) => entry.events);
+          expect(events.filter((event) => event.kind === "sword-hit-boss")).toHaveLength(scenario.expectedHits);
+          expect(events.filter((event) => event.kind === "auto")).toHaveLength(4);
+          const casts = combat.filter((event) => event.kind === "cast");
+          const landed = combat.filter((event) => event.kind === "sword-hit");
+          expect(casts).toHaveLength(attackMode === "wind-surge" ? scenario.expectedCasts : 0);
+          expect(landed).toHaveLength(casts.length);
+          for (const cast of casts) {
+            expect(cast.damage).toBe(80);
+            expect(cast.landingAt - cast.tick).toBeGreaterThanOrEqual(2);
+            expect(landed).toContainEqual(expect.objectContaining({ tick: cast.landingAt, swordIndex: cast.swordIndex, damage: cast.damage }));
+          }
+          expect(combat.some((event) => event.kind === "scythe-hit" && event.tick > stun.started && event.tick <= stun.until)).toBe(true);
+          const stunnedSwings = swings.filter((tick) => tick > stun.started && tick < stun.until);
+          expect(stunnedSwings.length).toBeGreaterThanOrEqual(1);
+          expect(stunnedSwings.every((tick, index) => index === 0 || tick - (stunnedSwings[index - 1] ?? tick) === player.attackSpeed)).toBe(true);
+          expect(new Set(issued.map((entry) => entry.tick)).size).toBe(issued.length);
+          expect(player.equipment.weapon).toBeInstanceOf(ScytheOfVitur);
+          expect(player.manualSpellCastSelection).toBeFalsy();
+          expect(opportunities.filter((tick) => tick >= impactedAt && tick < stun.until && !swings.includes(tick) && !issued.some((entry) => entry.tick === tick))).toEqual([]);
+          if (attackMode === "scythe") {
+            expect(combat.every((event) => event.kind === "scythe-hit")).toBe(true);
+            expect(opportunities.filter((tick) => tick >= firstStar && tick < stun.until && !swings.includes(tick) && !issued.some((entry) => entry.tick === tick))).toEqual([]);
           }
         }
-      } finally { drill.trainer.dispose(); }
+        expect(stars).toHaveLength(4);
+        expect([...completed]).toEqual([1, 2, 3]);
+        expect(swings.slice(0, 3)).toEqual([1, 6, 11]);
+        expect(reset).not.toHaveBeenCalled();
+      } finally {
+        clock.mockRestore();
+        observeOpportunities.mockRestore();
+        observeSwings.mockRestore();
+        reset.mockRestore();
+        drill.trainer.dispose();
+      }
     },
   );
 
@@ -312,7 +302,7 @@ describe("native route practice", () => {
       drill.tickTo(52);
       const scythe = drill.region.routeDemoSnapshot();
       if (scythe.kind === "disabled") throw new Error("Native route was disabled.");
-      expect(scythe).toMatchObject({ kind: "complete", attackMode: "scythe" });
+      expect(scythe).toMatchObject({ kind: "playing", attackMode: "scythe", cycle: 1, stage: { kind: "awaiting-star" } });
       expect(scythe.combat.every((event) => event.kind === "scythe-hit")).toBe(true);
       expect(drill.actors().player.equipment.weapon).toBeInstanceOf(ScytheOfVitur);
     } finally { drill.trainer.dispose(); }
@@ -358,7 +348,7 @@ describe("native route practice", () => {
     } finally { drill.trainer.dispose(); }
   });
 
-  test("manual attempts keep playing after hazard damage and expose the restart boundary", () => {
+  test("manual attempts keep the same actors and repeat the selected pattern after hazard damage", () => {
     const drill = practice({ routeDemo: "cross-2-2", invincible: true });
     try {
       drill.tickTo(18);
@@ -373,10 +363,17 @@ describe("native route practice", () => {
       expect(boss.rows.at(-1)?.events.some((event) => event.kind === "star-hit")).toBe(true);
       drill.tickTo(52);
       expect(drill.region.routeDemoSnapshot()).toMatchObject({ kind: "practice", cycle: 2 });
-      drill.trainer.reset();
-      expect(drill.actors().boss.location).toEqual({ x: 4, y: 6 });
-      expect(drill.actors().player.location).toEqual({ x: 4, y: 7 });
-      expect(drill.region.routeDemoSnapshot()).toMatchObject({ kind: "practice", cycle: 1 });
+      drill.tickTo(120);
+      expect(drill.actors().boss).toBe(boss);
+      expect(drill.actors().player).toBe(player);
+      expect(drill.region.world.isPaused).toBe(false);
+      expect(drill.region.routeDemoSnapshot()).toMatchObject({ kind: "practice", cycle: 4 });
+      expect(boss.rows.flatMap((row) => row.events).filter((event) => event.kind === "star-tell")).toEqual([
+        { kind: "star-tell", pattern: { kind: "cross", row: 2, column: 2 } },
+        { kind: "star-tell", pattern: { kind: "cross", row: 2, column: 2 } },
+        { kind: "star-tell", pattern: { kind: "cross", row: 2, column: 2 } },
+        { kind: "star-tell", pattern: { kind: "cross", row: 2, column: 2 } },
+      ]);
     } finally { drill.trainer.dispose(); }
   });
 
@@ -460,13 +457,13 @@ describe("native route practice", () => {
       expect(drill.region.routeDemoSnapshot()).toEqual(before);
       drill.region.world.startTicking();
       drill.tickTo(52);
-      expect(drill.region.routeDemoSnapshot()).toMatchObject({ kind: "complete", cycle: 1 });
+      expect(drill.region.routeDemoSnapshot()).toMatchObject({ kind: "playing", cycle: 1, stage: { kind: "awaiting-star" } });
       const initial = drill.actors().player;
       const replacement = drill.trainer.reset();
       expect(replacement).not.toBe(initial);
       expect(drill.region.world.getReadyTimer).toBe(0);
       drill.tickTo(52);
-      expect(drill.region.routeDemoSnapshot()).toMatchObject({ kind: "complete", cycle: 2 });
+      expect(drill.region.routeDemoSnapshot()).toMatchObject({ kind: "playing", cycle: 1, stage: { kind: "awaiting-star" } });
     } finally { drill.trainer.dispose(); }
   });
 
