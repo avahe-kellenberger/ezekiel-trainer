@@ -52,8 +52,8 @@ packs_at_pin() {
     commit="$(tar -xzOf "${file}" package/package.json | built_commit)"
     if [[ "${glob}" == 'osrs-sdk-[0-9]*.tgz' ]]; then
       patch="$(tar -xzOf "${file}" package/package.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).zekeInputPatch ?? 0))')"
-      if [[ "${patch}" != 4 ]]; then
-        echo "install-beta-sdk: rebuilding packs missing Zeke input/render patch 4"
+      if [[ "${patch}" != 5 ]]; then
+        echo "install-beta-sdk: rebuilding packs missing Zeke input/render patch 5"
         return 1
       fi
     fi

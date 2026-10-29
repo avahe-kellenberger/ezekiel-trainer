@@ -1,9 +1,10 @@
-import { LineOfSight, ScytheOfVitur, Settings, TrainerInstance } from "osrs-sdk";
+import { InputController, LineOfSight, Pathing, ScytheOfVitur, Settings, Trainer, TrainerInstance } from "osrs-sdk";
 import { ZekeRegion } from "../../src/content/zeke/ZekeRegion";
 import type { ZekeConfig } from "../../src/content/zeke/ZekeRegion";
 import { Zeke } from "../../src/content/zeke/Zeke";
 import { HarmonisedNightmareStaff } from "../../src/content/zeke/HarmonisedNightmareStaff";
 import { ZekePlayer } from "../../src/content/zeke/ZekePlayer";
+import { WindSurge } from "../../src/content/zeke/WindSurge";
 import { ZEKE_ROUTE_SCENARIOS, parseZekeRouteId } from "../../src/content/zeke/ZekeRoutePlans";
 
 function practice(config: ZekeConfig = {}) {
@@ -46,6 +47,92 @@ function practice(config: ZekeConfig = {}) {
 
 describe("native route practice", () => {
   const modes = ["scythe", "wind-surge"] as const;
+  test.each(ZEKE_ROUTE_SCENARIOS)("$id starts turning toward the boss during post-drag scythe swings", (scenario) => {
+    const drill = practice({ routeDemo: scenario.id, routeAutoplay: true });
+    const { boss, player } = drill.actors();
+    const swings: Readonly<{ tick: number; facing: number; target: number }>[] = [];
+    let now = window.performance.now();
+    const clock = vi.spyOn(window.performance, "now").mockImplementation(() => now);
+    const playAnimation = player.playAnimation.bind(player);
+    const observe = vi.spyOn(player, "playAnimation").mockImplementation((...args) => {
+      if (args[0] === player.attackAnimationId && player.equipment.weapon instanceof ScytheOfVitur && player.aggro === boss) {
+        const from = player.getPerceivedLocation(drill.region.world.tickPercent);
+        const to = boss.getPerceivedLocation(drill.region.world.tickPercent);
+        swings.push({ tick: boss.encounterTick, facing: player.getPerceivedRotation(0), target: -Pathing.angle(from.x + player.size / 2, from.y - player.size / 2, to.x + boss.size / 2, to.y - boss.size / 2) });
+      }
+      return playAnimation(...args);
+    });
+    let turningSwings = 0;
+    try {
+      for (let at = 1; at <= 31; at++) {
+        const before = player.getPerceivedRotation(0);
+        drill.tickTo(at);
+        const swing = swings.at(-1);
+        for (let client = 0; client < 30; client++) {
+          drill.region.world.tickClient(client / 30, now);
+          now += 20;
+          if (client !== 0 || !swing || swing.tick !== at || at <= 16) continue;
+          expect(swing.facing).toBeCloseTo(before);
+          const errorBefore = Math.abs(Math.atan2(Math.sin(swing.target - before), Math.cos(swing.target - before)));
+          if (errorBefore <= 0.25) continue;
+          const after = player.getPerceivedRotation(0);
+          const turned = Math.abs(Math.atan2(Math.sin(after - before), Math.cos(after - before)));
+          const errorAfter = Math.abs(Math.atan2(Math.sin(swing.target - after), Math.cos(swing.target - after)));
+          expect(turned, `Turn starts at tick ${at}`).toBeGreaterThan(0);
+          expect(turned).toBeLessThan(0.25);
+          expect(errorAfter).toBeLessThan(errorBefore);
+          turningSwings++;
+        }
+      }
+      expect(turningSwings).toBeGreaterThan(0);
+    } finally { observe.mockRestore(); clock.mockRestore(); drill.trainer.dispose(); }
+  });
+
+  test("manual targeting starts a smooth turn before an attack is ready", () => {
+    const drill = practice();
+    const { boss, player } = drill.actors();
+    let now = window.performance.now();
+    const clock = vi.spyOn(window.performance, "now").mockImplementation(() => now);
+    try {
+      player.setRotationImmediate(-1);
+      player.attackDelay = 3;
+      InputController.controller.queueAction(() => Trainer.clickController.playerAttackClick(boss));
+      drill.tickTo(1);
+      expect(player.attackDelay).toBeGreaterThan(0);
+      expect(player.getPerceivedRotation(0)).toBeCloseTo(-1);
+      const target = player.getTargetAngle();
+      drill.region.world.tickClient(0, now);
+      now += 20;
+      const facing = player.getPerceivedRotation(0);
+      expect(facing).toBeGreaterThan(-1);
+      expect(facing).toBeLessThan(target);
+    } finally { clock.mockRestore(); drill.trainer.dispose(); }
+  });
+
+  test("manual spell casting after movement keeps its facing when the SDK clears its target", () => {
+    const drill = practice();
+    const { boss, player } = drill.actors();
+    const spell = new WindSurge();
+    const facings: number[] = [];
+    const playAnimation = player.playAnimation.bind(player);
+    const observe = vi.spyOn(player, "playAnimation").mockImplementation((...args) => {
+      if (args[0] === spell.attackAnimationId) facings.push(player.getPerceivedRotation(0));
+      return playAnimation(...args);
+    });
+    try {
+      player.queueMovement(player.location.x + 2, player.location.y);
+      drill.tickTo(1);
+      expect(player.visualPath.length).toBeGreaterThan(0);
+      player.setRotationImmediate(1.2);
+      player.manualSpellCastSelection = spell;
+      InputController.controller.queueAction(() => Trainer.clickController.playerAttackClick(boss));
+      drill.tickTo(2);
+      expect(player.manualSpellCastSelection).toBeNull();
+      expect(player.aggro).toBeNull();
+      expect(facings).toEqual([1.2]);
+    } finally { observe.mockRestore(); drill.trainer.dispose(); }
+  });
+
   test.each(modes)("Lower Left returns both native actors home before completion in %s", (attackMode) => {
     const drill = practice({ routeDemo: "cross-2-8", routeAutoplay: true, routeAttackMode: attackMode });
     const { boss, player } = drill.actors();

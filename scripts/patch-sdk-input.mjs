@@ -2,9 +2,10 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export const INPUT_PATCH = 4;
+export const INPUT_PATCH = 5;
 const groundEffectGuard = '(this.lastPose < 0 && this.reference.kind !== "spotAnim")';
 const playerRotationMarker = "this._angle = rotation;";
+const playerTargetRotation = /this\.aggro\s*=\s*mob;\s*if\s*\(mob\)\s*this\.nextAngle\s*=\s*this\.getTargetAngle\(\);/;
 const root = path.resolve(process.argv[2]);
 const packageFile = path.join(root, "package.json");
 const packageJson = JSON.parse(fs.readFileSync(packageFile, "utf8"));
@@ -12,7 +13,7 @@ const packageJson = JSON.parse(fs.readFileSync(packageFile, "utf8"));
 if (process.argv[3] === "--check") {
   const declaration = fs.readFileSync(path.join(root, "lib/src/sdk/Player.d.ts"), "utf8");
   const bundle = fs.readFileSync(path.join(root, "_bundles/main.js"), "utf8");
-  if (packageJson.zekeInputPatch !== INPUT_PATCH || !declaration.includes("queueMovement(") || !bundle.includes("queueMovement(") || !bundle.includes(groundEffectGuard) || !declaration.includes("setRotationImmediate(") || !bundle.includes(playerRotationMarker) || !bundle.includes("renderer.clearDepth()") || !bundle.includes("recipe.compiledAssets.ground")) {
+  if (packageJson.zekeInputPatch !== INPUT_PATCH || !declaration.includes("queueMovement(") || !bundle.includes("queueMovement(") || !bundle.includes(groundEffectGuard) || !declaration.includes("setRotationImmediate(") || !bundle.includes(playerRotationMarker) || !playerTargetRotation.test(bundle) || !bundle.includes("renderer.clearDepth()") || !bundle.includes("recipe.compiledAssets.ground")) {
     throw new Error(`Installed SDK is missing Zeke input/render patch ${INPUT_PATCH}; run scripts/install-beta-sdk.sh.`);
   }
   console.log(`SDK Zeke input/render patch ${INPUT_PATCH} verified.`);
@@ -64,6 +65,9 @@ if (process.argv[3] === "--check") {
     replace("src/sdk/rendering/CacheRenderSceneModel.ts", "          this.root.add(new THREE.Mesh(geometry, material));", "          const mesh = new THREE.Mesh(geometry, material);\n          if (recipe.compiledAssets.ground && (kind === \"terrain\" || kind === \"ground\")) {\n            mesh.renderOrder = -2;\n            floorMeshes.push(mesh);\n          }\n          this.root.add(mesh);");
     replace("src/sdk/rendering/CacheRenderSceneModel.ts", "      }\n    })();\n    return this.ready;", "      }\n      const lastFloor = floorMeshes[floorMeshes.length - 1];\n      if (lastFloor) {\n        // Floor surfaces still occlude each other, but native actor animation\n        // vertices may pass beneath them. Retain ordinary scenery/actor depth.\n        lastFloor.renderOrder = -1;\n        lastFloor.frustumCulled = false;\n        lastFloor.onAfterRender = (renderer) => renderer.clearDepth();\n      }\n    })();\n    return this.ready;");
   }
+  if ((packageJson.zekeInputPatch ?? 0) < 5) replace("src/sdk/Player.ts",
+    '    this.aggro = mob;\n    this.seekingItem = null;',
+    '    this.aggro = mob;\n    if (mob) this.nextAngle = this.getTargetAngle();\n    this.seekingItem = null;');
   packageJson.zekeInputPatch = INPUT_PATCH;
   fs.writeFileSync(packageFile, `${JSON.stringify(packageJson, null, 2)}\n`);
   console.log(`Applied SDK Zeke input/render patch ${INPUT_PATCH}.`);

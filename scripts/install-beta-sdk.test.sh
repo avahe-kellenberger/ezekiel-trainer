@@ -36,6 +36,10 @@ SOURCE
 cat >"$1/src/sdk/Player.ts" <<'SOURCE'
 import { Pathing } from "./Pathing";
 export class Player {
+  setAggro(mob: Unit | null) {
+    this.aggro = mob;
+    this.seekingItem = null;
+  }
   getPerceivedRotation(tickPercent) {
   }
   moveTo(x: number, y: number, pace: MovePace = "run-setting") {
@@ -107,6 +111,7 @@ if grep -q 'setRotationImmediate(rotation' "$1/src/sdk/Player.ts"; then
   echo 'this._angle = rotation;' >>"$1/_bundles/main.js"
 fi
 cat "$1/src/sdk/rendering/CacheRenderModel.ts" "$1/src/sdk/rendering/CacheRenderSceneModel.ts" >>"$1/_bundles/main.js"
+sed -n '/  setAggro(/,/^  }/p' "$1/src/sdk/Player.ts" >>"$1/_bundles/main.js"
 EOF
 cat >"$WORK/bin/git" <<'EOF'
 #!/usr/bin/env bash
@@ -149,7 +154,11 @@ packs() {
   local dir="$1" commit="$2" patched="${3:-yes}" src
   src="$(mktemp -d "$T/src.XXXXXX")"
   sdk-source "$src"
-  if [[ "$patched" == yes ]]; then node "$APP/scripts/patch-sdk-input.mjs" "$src" >/dev/null || return 1; fi
+  if [[ "$patched" != no ]]; then node "$APP/scripts/patch-sdk-input.mjs" "$src" >/dev/null || return 1; fi
+  if [[ "$patched" == 4 ]]; then
+    sed -i '/if (mob) this.nextAngle = this.getTargetAngle();/d' "$src/src/sdk/Player.ts"
+    "$REAL_NPM" pkg set zekeInputPatch=4 --json --prefix "$src" || return 1
+  fi
   sdk-build "$src"
   mkdir -p "$dir"
   (
@@ -309,6 +318,24 @@ installed_sdk_without_player_rotation_fix_is_replaced() {
   expect_reinstalled_at_the_pin
 }
 
+installed_sdk_without_target_turning_is_replaced() {
+  setup
+  installed_from_packs "$PIN" || return 1
+  sed -i '/if (mob) this.nextAngle = this.getTargetAngle();/d' "$APP/node_modules/osrs-sdk/_bundles/main.js"
+  echo 'this.nextAngle = this.getTargetAngle();' >>"$APP/node_modules/osrs-sdk/_bundles/main.js"
+  ready
+  run_verify
+  expect_reinstalled_at_the_pin
+}
+
+patch_four_packs_are_rebuilt() {
+  setup
+  packs "$T/prebuilt" "$PIN" 4 || return 1
+  ready
+  OSRS_SDK_PACKS="$T/prebuilt" install_sdk
+  expect_built_at_the_pin
+}
+
 installed_sdk_without_ground_depth_pass_is_replaced() {
   setup
   installed_from_packs "$PIN" || return 1
@@ -328,7 +355,7 @@ patch_three_upgrades_without_reapplying_rotation() {
 import fs from 'node:fs';
 import path from 'node:path';
 const [root, patchFile] = process.argv.slice(2);
-const patch = fs.readFileSync(patchFile, 'utf8').split('if ((packageJson.zekeInputPatch ?? 0) < 4) {')[1].split('  packageJson.zekeInputPatch')[0];
+const patch = fs.readFileSync(patchFile, 'utf8').split('if ((packageJson.zekeInputPatch ?? 0) < 4) {')[1].split('if ((packageJson.zekeInputPatch ?? 0) < 5)')[0];
 const changes = [...patch.matchAll(/replace\(("(?:[^"\\]|\\.)*"), ("(?:[^"\\]|\\.)*"), ("(?:[^"\\]|\\.)*")\);/g)];
 if (changes.length < 10) throw new Error('Missing ground patch fixture changes');
 for (const match of changes.reverse()) {
@@ -336,6 +363,7 @@ for (const match of changes.reverse()) {
   const target=path.join(root,file); fs.writeFileSync(target,fs.readFileSync(target,'utf8').replace(after,before));
 }
 const file=path.join(root,'package.json'), pkg=JSON.parse(fs.readFileSync(file));pkg.zekeInputPatch=3;fs.writeFileSync(file,JSON.stringify(pkg));
+const player=path.join(root,'src/sdk/Player.ts');fs.writeFileSync(player,fs.readFileSync(player,'utf8').replace('    if (mob) this.nextAngle = this.getTargetAngle();\n',''));
 NODE
   node "$APP/scripts/patch-sdk-input.mjs" "$src" >/dev/null || return 1
   sdk-build "$src"
@@ -344,8 +372,27 @@ NODE
   ready
 }
 
+patch_four_upgrades_without_reapplying_previous_patches() {
+  setup
+  local src="$T/upgrade"
+  sdk-source "$src"
+  node "$APP/scripts/patch-sdk-input.mjs" "$src" >/dev/null || return 1
+  sed -i '/if (mob) this.nextAngle = this.getTargetAngle();/d' "$src/src/sdk/Player.ts"
+  "$REAL_NPM" pkg set zekeInputPatch=4 --json --prefix "$src" || return 1
+  ready
+  node "$APP/scripts/patch-sdk-input.mjs" "$src" >/dev/null || fail "patch four did not upgrade"
+  node "$APP/scripts/patch-sdk-input.mjs" "$src" >/dev/null || fail "repeated patch did not succeed"
+  sdk-build "$src"
+  node "$APP/scripts/patch-sdk-input.mjs" "$src" --check || fail "upgraded SDK lacks the target turning fix"
+  [[ "$(grep -c 'override setRotationImmediate' "$src/src/sdk/Player.ts")" == 1 ]] || fail "rotation patch reapplied"
+  [[ "$(grep -c 'if (mob) this.nextAngle = this.getTargetAngle();' "$src/src/sdk/Player.ts")" == 1 ]] || fail "target turning patch reapplied"
+}
+
 failed=0
 for t in \
+  installed_sdk_without_target_turning_is_replaced \
+  patch_four_packs_are_rebuilt \
+  patch_four_upgrades_without_reapplying_previous_patches \
   installed_sdk_without_ground_depth_pass_is_replaced \
   patch_three_upgrades_without_reapplying_rotation \
   install_at_the_pin_is_reused \
