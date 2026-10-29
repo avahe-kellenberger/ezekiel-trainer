@@ -112,7 +112,8 @@
       #drill_controls {
         position: relative;
         display: flex;
-        gap: 4px;
+        flex-wrap: wrap;
+        gap: 6px;
         margin: 0;
         font-size: 12px;
         pointer-events: auto;
@@ -244,24 +245,19 @@
       }
 
       #zeke_music { display: grid; gap: 4px; }
+      #settings_menu .audio_setting {
+        display: grid;
+        grid-template-columns: 13ch minmax(90px, 150px);
+        align-items: center;
+        gap: 6px;
+        width: 100%;
+      }
+      .audio_setting input[type="range"] { width: 100%; margin: 0; }
+      #drill_controls .icon_button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 26px; padding: 4px; flex-shrink: 0; }
+      #drill_controls button:disabled { cursor: default; opacity: 0.5; }
       #music_status { color: #fff; font-size: 11px; }
       #settings_menu input[type="number"] { width: 4ch; }
       #settings_menu hr { width: 100%; border: 0; border-top: 1px solid #756b58; }
-      #zeke_help {
-        position: absolute;
-        bottom: calc(100% + 4px);
-        left: 0;
-        width: min(42ch, calc(100vw - 32px));
-        padding: 12px;
-        background: #3e3529;
-        border: 2px solid #000;
-        outline: 1px solid #5a5245;
-        max-height: 65vh;
-        overflow-y: auto;
-      }
-      #zeke_help[hidden] { display: none; }
-      #zeke_help h2 { color: #ff981f; font-size: 15px; margin: 0; }
-      #zeke_help p { line-height: 1.4; }
       #route_scenarios {
         position: absolute;
         bottom: calc(100% + 4px);
@@ -278,6 +274,9 @@
       }
       #route_scenarios[hidden] { display: none; }
       .route_scenarios_heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+      .route_actions, .route_window_actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+      #drill_controls .route_actions > button { min-height: 26px; }
+      .route_window_actions { flex-shrink: 0; }
       #route_scenarios h2 { margin: 0; font-size: 16px; color: #ffbd6b; }
       #route_scenarios p { line-height: 1.4; margin: 10px 0; }
       .route_scenario_grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }

@@ -28,16 +28,14 @@ function equip(player: Player, matches: (item: Item) => boolean): void {
   item.inventoryLeftClick(player);
 }
 
-it("arranges switches in the screenshot's rows and puts kisten and maul below the gear on the left", () => {
+it("arranges inventory in the reference's rows and preserves the equipped melee gear", () => {
   const { player, dispose } = drill();
   try {
-    expect(player.inventory.slice(0, 12).map((item) => item?.itemName)).toEqual([
+    expect(player.inventory.slice(0, 16).map((item) => item?.itemName)).toEqual([
       ItemName.TWISTED_BOW, ItemName.MASORI_MASK_F, ItemName.MASORI_BODY_F, ItemName.MASORI_CHAPS_F,
       ItemName.ZARYTE_VAMBRACES, ItemName.NECKLACE_OF_RUPTURE, ItemName.DIZANAS_QUIVER, ItemName.VENATOR_RING,
-      ItemName.OCCULT_NECKLACE, ItemName.ANCESTRAL_ROBEBOTTOM, ItemName.HARMONISED_NIGHTMARE_STAFF, ItemName.ANCESTRAL_ROBETOP,
-    ]);
-    expect(player.inventory.slice(12, 16).map((item) => item?.itemName)).toEqual([
-      ItemName.CRIMSON_KISTEN, ItemName.ELDER_MAUL, ItemName.SUPER_COMBAT_POTION, ItemName.BASTION_POTION,
+      ItemName.CRIMSON_KISTEN, ItemName.ELDER_MAUL, ItemName.HARMONISED_NIGHTMARE_STAFF, ItemName.ANCESTRAL_ROBETOP,
+      ItemName.BASTION_POTION, ItemName.SUPER_COMBAT_POTION, ItemName.OCCULT_NECKLACE, ItemName.ANCESTRAL_ROBEBOTTOM,
     ]);
     expect(player.inventory).toHaveLength(28);
     expect(player.inventory.slice(16, 22).every((item) => item instanceof SaradominBrew)).toBe(true);

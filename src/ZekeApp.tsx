@@ -1,21 +1,25 @@
 import React, { useEffect, useRef, useState } from "react";
 import { CacheRender, ControlPanelController, SETTINGS_STORAGE_KEY, Settings, SoundCache, TrainerInstance, Viewport } from "osrs-sdk";
 import type { TrainerLoadingState } from "osrs-sdk";
-import { GameOverlay, TrainerApp, TrainerLoadingSplash, useSettingsSnapshot, useTrainerSnapshot } from "osrs-sdk-react";
+import { GameOverlay, TrainerApp, TrainerLoadingSplash, useTrainerSnapshot } from "osrs-sdk-react";
 import { ZekeRegion } from "./content/zeke/ZekeRegion";
-import type { ZekeRunResult } from "./content/zeke/ZekeRegion";
+import type { ZekeRunOptions, ZekeRunResult } from "./content/zeke/ZekeRegion";
 import { Zeke } from "./content/zeke/Zeke";
 import { installWindSurgeControls, WindSurgeControls } from "./content/zeke/WindSurgeControls";
 import { ZekeRoutePicker } from "./ZekeRoutePicker";
 import { parseZekeRouteId } from "./content/zeke/ZekeRoutePlans";
 import type { ZekeRouteId } from "./content/zeke/ZekeRoutePlans";
 import { ZEKE_PRESENTATION } from "./content/zeke/assets";
+import { PauseButton, usePauseShortcut } from "./ZekePlayback";
+import { nextSeed, restartZekeRun } from "./ZekeRunControls";
+import { seed as seedValue } from "./sim/brands";
+import { installMetronome, installSoundVolumes, savedAudioVolume, setAudioVolume } from "./zekeAudio";
+import { IconButton } from "./ZekeIconButton";
+import { installZekeSettingsControls } from "./content/zeke/settingsControls";
 
 const CREDIT_LINE = "Created using intellectual property belonging to Jagex Limited under the terms of Jagex's Fan Content Policy. This content is not endorsed by or affiliated with Jagex.";
-const MUSIC_STORAGE_KEY = "zeke:music-volume";
 
-type Setup = "melee" | "ranged";
-type PracticeOptions = Readonly<{ seed: number; setup: Setup; invincible: boolean; phase: "full" | "finale"; routeDemo: ZekeRouteId | null }>;
+type PracticeOptions = ZekeRunOptions & Readonly<{ routeDemo: ZekeRouteId | null }>;
 type MusicState = "waiting" | "playing" | "paused" | "unavailable";
 
 function practiceOptions(): PracticeOptions {
@@ -23,7 +27,7 @@ function practiceOptions(): PracticeOptions {
   const seed = Number(params.get("seed"));
   const routeDemo = parseZekeRouteId(params.get("route"));
   return {
-    seed: params.has("seed") && Number.isSafeInteger(seed) && seed >= 0 ? seed : crypto.getRandomValues(new Uint32Array(1))[0],
+    seed: seedValue(params.has("seed") && Number.isInteger(seed) && seed >= 0 && seed <= 0xffffffff ? seed : crypto.getRandomValues(new Uint32Array(1))[0]),
     phase: routeDemo === null && params.get("phase") === "finale" ? "finale" : "full",
     routeDemo,
     setup: params.get("setup") === "ranged" ? "ranged" : "melee",
@@ -40,7 +44,9 @@ function readSettings(): void {
   const sound = typeof values === "object" && values !== null && "playsAudio" in values && typeof values.playsAudio === "boolean" ? values.playsAudio : true;
   const areaSound = typeof values === "object" && values !== null && "playsAreaAudio" in values && typeof values.playsAreaAudio === "boolean" ? values.playsAreaAudio : true;
   Settings.readFromStorage();
-  Settings.set({ use3dView: true, rotated: "north", trueTileEnabled: true, playsAudio: sound, playsAreaAudio: areaSound, displayBossHealthBar: true });
+  if (!sound) setAudioVolume("effects", 0);
+  if (!areaSound) setAudioVolume("area", 0);
+  Settings.set({ use3dView: true, rotated: "north", trueTileEnabled: true, playsAudio: true, playsAreaAudio: true, metronome: false, displayBossHealthBar: true });
 }
 
 function openTrainer() {
@@ -69,7 +75,7 @@ function openTrainer() {
     log: () => region.fightLog(),
     tileCentre: (at) => Viewport.viewport.projectTile(at, trainer.world),
   };
-  return { trainer, region, options };
+  return { trainer, region };
 }
 
 declare global {
@@ -87,19 +93,9 @@ declare global {
   }
 }
 
-function savedMusicVolume(): number {
-  try {
-    const saved = localStorage.getItem(MUSIC_STORAGE_KEY);
-    const volume = Number(saved);
-    return saved !== null && Number.isFinite(volume) && volume >= 0 && volume <= 1 ? volume : 0.35;
-  } catch {
-    return 0.35;
-  }
-}
-
 function Music({ ready }: Readonly<{ ready: boolean }>) {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [volume, setVolume] = useState(savedMusicVolume);
+  const [volume, setVolume] = useState(() => savedAudioVolume("music"));
   const [state, setState] = useState<MusicState>("waiting");
   const paused = useTrainerSnapshot(({ world }) => world.isPaused);
   const hasInteracted = useRef(false);
@@ -131,42 +127,56 @@ function Music({ ready }: Readonly<{ ready: boolean }>) {
   }, [ready, paused, volume]);
   const changeVolume = (next: number) => {
     setVolume(next);
-    try { localStorage.setItem(MUSIC_STORAGE_KEY, String(next)); } catch {}
+    setAudioVolume("music", next);
   };
   return (
     <div id="zeke_music">
       <audio ref={audioRef} src={ZEKE_PRESENTATION.region.musicPath} preload="auto" loop onPlaying={() => setState("playing")} onPause={() => setState("paused")} onError={() => setState("unavailable")} />
-      <label>Music <input aria-label="Music volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => changeVolume(Number(event.target.value))} /></label>
+      <label className="audio_setting"><span>Music</span><input aria-label="Music volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => changeVolume(Number(event.target.value))} /></label>
       <span id="music_status" role="status" data-state={state}>{state === "unavailable" ? "Encounter music could not load." : "Blade of Forgotten Justice"}</span>
     </div>
   );
 }
 
-function PracticeControls({ trainer, region, options, ready }: ReturnType<typeof openTrainer> & Readonly<{ ready: boolean }>) {
+function SoundSettings() {
+  const [effects, setEffects] = useState(() => savedAudioVolume("effects"));
+  const [area, setArea] = useState(() => savedAudioVolume("area"));
+  const [metronome, setMetronome] = useState(() => savedAudioVolume("metronome"));
+  return <>
+    <div className="audio_setting"><label htmlFor="sound_volume">Sound effects</label><input id="sound_volume" aria-label="Sound effects volume" type="range" min="0" max="1" step="0.05" value={effects} onChange={(event) => { const volume = Number(event.target.value); setEffects(volume); setAudioVolume("effects", volume); }} /></div>
+    <div className="audio_setting"><label htmlFor="area_sound_volume">Area sounds</label><input id="area_sound_volume" aria-label="Area sounds volume" type="range" min="0" max="1" step="0.05" value={area} onChange={(event) => { const volume = Number(event.target.value); setArea(volume); setAudioVolume("area", volume); }} /></div>
+    <div className="audio_setting"><label htmlFor="metronome_volume">Metronome</label><input id="metronome_volume" aria-label="Metronome volume" type="range" min="0" max="1" step="0.05" value={metronome} onChange={(event) => { const volume = Number(event.target.value); setMetronome(volume); setAudioVolume("metronome", volume); }} /></div>
+  </>;
+}
+
+function PracticeControls({ trainer, region, ready }: ReturnType<typeof openTrainer> & Readonly<{ ready: boolean }>) {
   const [open, setOpen] = useState(false);
-  const [help, setHelp] = useState(false);
+  const options = useTrainerSnapshot(() => region.runOptions);
   const [phase, setPhase] = useState(options.phase);
   const [setup, setSetup] = useState(options.setup);
   const [invincible, setInvincible] = useState(options.invincible);
   const [seed, setSeed] = useState(String(options.seed));
-  const { playsAudio, playsAreaAudio } = useSettingsSnapshot();
-  const paused = useTrainerSnapshot(({ world }) => world.isPaused);
-  const demoKind = region.routeDemoSnapshot().kind;
-  const demoFinished = demoKind === "failed";
+  const seedInput = useRef<HTMLInputElement>(null);
+  usePauseShortcut(trainer, region, ready);
+  useEffect(() => {
+    setSeed(String(options.seed));
+    setPhase(options.phase);
+    setSetup(options.setup);
+    setInvincible(options.invincible);
+    seedInput.current?.setCustomValidity("");
+  }, [options]);
   const apply = () => {
-    const url = new URL(window.location.href);
-    url.searchParams.set("setup", setup);
-    url.searchParams.set("phase", phase);
-    if (phase === "finale") url.searchParams.delete("route");
-    url.searchParams.set("seed", seed);
-    url.searchParams.delete("allies");
-    if (invincible) url.searchParams.set("invincible", "on");
-    else url.searchParams.delete("invincible");
-    window.location.assign(url.href);
+    const value = Number(seed);
+    if (seed.trim() === "" || !Number.isInteger(value) || value < 0 || value > 0xffffffff) {
+      seedInput.current?.setCustomValidity("Enter a seed between 0 and 4294967295.");
+      seedInput.current?.reportValidity();
+      return;
+    }
+    restartZekeRun(trainer, region, { seed: seedValue(value), setup, phase, invincible });
   };
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { setOpen(false); setHelp(false); }
+      if (event.key === "Escape") setOpen(false);
     };
     window.addEventListener("keydown", close, true);
     return () => window.removeEventListener("keydown", close, true);
@@ -176,29 +186,19 @@ function PracticeControls({ trainer, region, options, ready }: ReturnType<typeof
       <div id="settings_menu" hidden={!open}>
         <label>Encounter <select value={phase} onChange={(event) => setPhase(event.target.value === "finale" ? "finale" : "full")}><option value="full">Full encounter</option><option value="finale">Finale practice</option></select></label>
         <label>Loadout <select id="setup" value={setup} onChange={(event) => setSetup(event.target.value === "ranged" ? "ranged" : "melee")}><option value="melee">Melee</option><option value="ranged">Ranged</option></select></label>
-        <label>Pattern seed <input id="seed" value={seed} inputMode="numeric" pattern="[0-9]+" onChange={(event) => setSeed(event.target.value)} onKeyDown={(event) => event.stopPropagation()} /></label>
+        <label>Pattern seed <input ref={seedInput} id="seed" value={seed} required inputMode="numeric" pattern="[0-9]+" onChange={(event) => { event.target.setCustomValidity(""); setSeed(event.target.value); }} onKeyDown={(event) => event.stopPropagation()} /></label>
         <label>Invincible <input id="invincible" type="checkbox" checked={invincible} onChange={(event) => setInvincible(event.target.checked)} /></label>
         <button type="submit">Apply &amp; restart</button>
         <hr />
-        <label>Sound effects <input id="sound" type="checkbox" checked={playsAudio} onChange={(event) => Settings.set({ playsAudio: event.target.checked })} /></label>
-        <label>Area sounds <input id="area_sound" type="checkbox" checked={playsAreaAudio} onChange={(event) => Settings.set({ playsAreaAudio: event.target.checked })} /></label>
+        <SoundSettings />
         <Music ready={ready} />
         <button id="keybinds" type="button" disabled={!ready} onClick={() => { ControlPanelController.controller.setActiveControl("SETTINGS"); setOpen(false); }}>Game settings &amp; keybinds</button>
       </div>
-      <section id="zeke_help" hidden={!help}>
-        <h2>Ezekiel practice</h2>
-        <p>Left-click to move or attack. Right-click for the game menu. Drag with the middle mouse button to rotate the camera and scroll to zoom.</p>
-        <p>Use the game tabs for prayers, equipment, inventory and combat styles. You are the tank. Align Ezekiel's center with the sword lanes.</p>
-        <p>Under Ezekiel, he tries a new escape direction each tick. Stay in melee range when he attacks; otherwise his magic hits the whole team.</p>
-        <p>Show solves draws a reference path and numbered movement clicks for each sword wave. Routes start at tile (4, 7) and do not adapt to your current position. You control movement and attacks.</p>
-        <p>Encounter timing and damage remain under calibration.</p>
-        <button type="button" onClick={() => setHelp(false)}>Close</button>
-      </section>
-      <button id="settings" type="button" aria-expanded={open} onClick={() => { setOpen(!open); setHelp(false); }}>Settings</button>
-      <button id="restart" type="button" disabled={!ready} onClick={() => trainer.reset()}>Restart</button>
-      <button id="pause" type="button" disabled={!ready || demoFinished} onClick={() => paused ? trainer.start() : trainer.stop()}>{paused ? "Resume" : "Pause"}</button>
+      <button id="settings" type="button" aria-expanded={open} onClick={() => setOpen(!open)}>Settings</button>
+      <PauseButton id="pause" trainer={trainer} region={region} disabled={!ready} />
+      <IconButton id="restart" label="Restart current seed" icon="restart" disabled={!ready} onClick={() => trainer.reset()} />
+      <button id="restart_new_seed" type="button" disabled={!ready} title="Restart with a new pattern seed" onClick={() => restartZekeRun(trainer, region, { ...region.runOptions, seed: nextSeed(region.seed) })}>New seed</button>
       <ZekeRoutePicker region={region} trainer={trainer} ready={ready} />
-      <button type="button" aria-expanded={help} onClick={() => { setHelp(!help); setOpen(false); }}>Help</button>
     </form>
   );
 }
@@ -249,9 +249,8 @@ function RunResultPanel({ trainer, region }: Readonly<{ trainer: TrainerInstance
   const time = `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(1).padStart(4, "0")}`;
   const retry = () => { setResult(null); trainer.reset(); };
   const restart = () => {
-    const url = new URL(window.location.href);
-    url.searchParams.delete("seed");
-    window.location.assign(url.href);
+    setResult(null);
+    restartZekeRun(trainer, region, { ...region.runOptions, seed: nextSeed(region.seed) });
   };
   return (
     <section id="run_result" role="dialog" aria-labelledby="run_result_title" aria-describedby="run_result_detail">
@@ -267,6 +266,9 @@ export function ZekeApp() {
   const [opened] = useState(openTrainer);
   const [loading, setLoading] = useState<TrainerLoadingState>();
   const ready = loading?.status === "ready";
+  useEffect(installSoundVolumes, []);
+  useEffect(installZekeSettingsControls, []);
+  useEffect(() => installMetronome(opened.trainer), [opened.trainer]);
   return (
     <TrainerApp trainer={opened.trainer} onLoadingStateChange={setLoading} aria-label="Ezekiel trainer">
       <GameOverlay>

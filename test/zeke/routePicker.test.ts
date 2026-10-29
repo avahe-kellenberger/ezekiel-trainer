@@ -120,6 +120,41 @@ test("live solves follow regular sword waves, toggle off, and reset without taki
 });
 
 describe("automatic demo controls", () => {
+  test("selecting and exiting a scenario from finale keeps the live phase and URL in sync", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    Settings.readFromStorage();
+    Settings.set({ playsAudio: false, playsAreaAudio: false });
+    window.history.replaceState(null, "", "/?seed=1&phase=finale");
+    const region = new ZekeRegion({ phase: "finale" });
+    const trainer = new TrainerInstance(region);
+    const loop = vi.spyOn(trainer.world, "startLoop").mockImplementation(() => {});
+    const container = document.createElement("div");
+    trainer.mount(document.createElement("canvas"), container);
+    const root = createRoot(container);
+    const click = (selector: string) => {
+      const button = container.querySelector(selector);
+      if (!(button instanceof HTMLButtonElement)) throw new Error(`Missing ${selector}`);
+      act(() => button.click());
+    };
+    try {
+      act(() => root.render(React.createElement(TrainerProvider, { trainer, children: React.createElement(ZekeRoutePicker, { region, trainer, ready: true }) })));
+      click("#route_picker");
+      click('[data-scenario="cross-2-2"]');
+      expect(region.runOptions.phase).toBe("full");
+      expect(new URL(window.location.href).searchParams.get("phase")).toBe("full");
+      click("#route_manual");
+      expect(region.routeDemoSnapshot().kind).toBe("disabled");
+      expect(new URL(window.location.href).searchParams.get("route")).toBeNull();
+      expect(new URL(window.location.href).searchParams.get("phase")).toBe("full");
+    } finally {
+      act(() => root.unmount());
+      trainer.dispose();
+      loop.mockRestore();
+      window.history.replaceState(null, "", "/");
+      vi.unstubAllGlobals();
+    }
+  });
+
   test.each([
     { attackMode: "scythe", control: "playing", route: "two-rows" },
     { attackMode: "wind-surge", control: "playing", route: "two-rows" },
@@ -139,7 +174,7 @@ describe("automatic demo controls", () => {
     trainer.mount(document.createElement("canvas"), container);
     const root = createRoot(container);
     try {
-      act(() => root.render(React.createElement(ZekeRoutePicker, { region, trainer, ready: true })));
+      act(() => root.render(React.createElement(TrainerProvider, { trainer, children: React.createElement(ZekeRoutePicker, { region, trainer, ready: true }) })));
       const close = container.querySelector("#route_close");
       if (!(close instanceof HTMLButtonElement)) throw new Error("Missing scenario close button");
       act(() => close.click());
@@ -198,8 +233,13 @@ describe("automatic demo controls", () => {
       return control;
     };
     try {
-      act(() => root.render(React.createElement(ZekeRoutePicker, { region, trainer, ready: true })));
+      act(() => root.render(React.createElement(TrainerProvider, { trainer, children: React.createElement(ZekeRoutePicker, { region, trainer, ready: true }) })));
       expect(windSurge().checked).toBe(false);
+      expect(container.querySelector<HTMLInputElement>("#route_show_path")?.checked).toBe(true);
+      expect(container.querySelector("#route_close")?.getAttribute("aria-label")).toBe("Minimize scenario");
+      expect(container.querySelector("#route_manual")?.closest(".route_scenarios_heading")).not.toBeNull();
+      expect(container.querySelector("#route_replay")?.textContent).toBe("");
+      expect(region.entities.some((entity) => entity instanceof TileMarker)).toBe(true);
       expect(region.routeDemoSnapshot()).toMatchObject({ kind: "playing", attackMode: "scythe" });
       const original = trainer.getSnapshot().player;
       click("#route_wind_surge");
@@ -232,6 +272,11 @@ describe("automatic demo controls", () => {
       const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
       document.activeElement?.dispatchEvent(tab);
       expect(tab.defaultPrevented).toBe(false);
+      click("#route_picker");
+      click("#route_manual");
+      expect(region.routeDemoSnapshot().kind).toBe("disabled");
+      expect(container.querySelector("#route_demo_status")).toBeNull();
+      expect(container.querySelector("#route_picker")?.textContent).toBe("Choose sword scenario");
     } finally {
       act(() => root.unmount());
       trainer.dispose();
@@ -264,7 +309,7 @@ describe("automatic demo controls", () => {
     };
     const mouse = () => canvas.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
     try {
-      act(() => root.render(React.createElement(ZekeRoutePicker, { region, trainer, ready: true })));
+      act(() => root.render(React.createElement(TrainerProvider, { trainer, children: React.createElement(ZekeRoutePicker, { region, trainer, ready: true }) })));
       expect(container.querySelector("#route_play")?.textContent).toBe("Watch automatic demo");
       mouse();
       expect(gameClick).toHaveBeenCalledTimes(1);
@@ -279,7 +324,7 @@ describe("automatic demo controls", () => {
       const progress = region.routeDemoSnapshot();
       click("#route_pause");
       expect(trainer.world.isPaused).toBe(true);
-      expect(container.querySelector("#route_pause")?.textContent).toBe("Resume");
+      expect(container.querySelector("#route_pause")?.getAttribute("aria-label")).toBe("Play");
       expect(trainer.getSnapshot().player).toBe(player);
       expect(region.routeDemoSnapshot()).toEqual(progress);
       expect(mouse()).toBe(false);

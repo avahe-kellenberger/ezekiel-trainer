@@ -1,6 +1,7 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Settings, TrainerInstance } from "osrs-sdk";
+import { TrainerProvider } from "osrs-sdk-react";
 import { ZekeRoutePicker } from "../../src/ZekeRoutePicker";
 import { ZekeRegion } from "../../src/content/zeke/ZekeRegion";
 import { tick } from "../../src/sim/brands";
@@ -26,7 +27,7 @@ test.each([
   const container = document.createElement("div");
   const root = createRoot(container);
   try {
-    act(() => root.render(React.createElement(ZekeRoutePicker, { region, trainer, ready: true })));
+    act(() => root.render(React.createElement(TrainerProvider, { trainer, children: React.createElement(ZekeRoutePicker, { region, trainer, ready: true }) })));
     act(() => vi.advanceTimersByTime(100));
     expect(reset).not.toHaveBeenCalled();
     at = resetAt;

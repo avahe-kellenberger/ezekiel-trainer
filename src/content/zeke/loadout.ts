@@ -27,8 +27,8 @@ export function dressZekePlayer(player: Player, setup: "melee" | "ranged"): void
   const inventory: Item[] = [
     switches.weapon, switches.helmet, switches.chest, switches.legs,
     switches.gloves, switches.necklace, switches.cape, switches.ring,
-    new OccultNecklace(), new AncestralRobebottom(), new HarmonisedNightmareStaff(), new AncestralRobetop(),
-    new CrimsonKisten(), new ElderMaul(), new SuperCombatPotion(), new BastionPotion(),
+    new CrimsonKisten(), new ElderMaul(), new HarmonisedNightmareStaff(), new AncestralRobetop(),
+    new BastionPotion(), new SuperCombatPotion(), new OccultNecklace(), new AncestralRobebottom(),
     new SaradominBrew(), new SaradominBrew(), new SaradominBrew(), new SaradominBrew(),
     new SaradominBrew(), new SaradominBrew(), new SuperRestore(), new SuperRestore(),
     new SuperRestore(), new SuperRestore(), new SuperRestore(), new SuperRestore(),

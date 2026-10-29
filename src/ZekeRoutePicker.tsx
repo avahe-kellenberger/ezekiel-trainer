@@ -8,6 +8,8 @@ import type { ZekeRouteId, ZekeRouteScenario } from "./content/zeke/ZekeRoutePla
 import type { ZekeRouteDemoStatus } from "./content/zeke/ZekeRouteDemo";
 import type { SwordPattern } from "./content/zeke/mechanics";
 import { ZEKE_RULES } from "./content/zeke/ZekeRules";
+import { PauseButton } from "./ZekePlayback";
+import { IconButton } from "./ZekeIconButton";
 
 function swordPath(pattern: SwordPattern, x: number, y: number): boolean {
   const halfWidth = ZEKE_RULES.swords.halfWidth.value;
@@ -68,7 +70,7 @@ function demoMessage(status: ZekeRouteDemoStatus): string {
 export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: ZekeRegion; trainer: TrainerInstance; ready: boolean }>) {
   const [visiblePanel, setVisiblePanel] = useState<"closed" | "scenarios" | "status">(() => region.routeDemoSnapshot().kind === "disabled" ? "closed" : "status");
   const open = visiblePanel === "scenarios";
-  const [showPath, setShowPath] = useState(false);
+  const [showPath, setShowPath] = useState(true);
   const [showSolves, setShowSolves] = useState(false);
   const [swordSolve, setSwordSolve] = useState<ZekeRouteScenario | null>(null);
   const [paused, setPaused] = useState(trainer.world.isPaused);
@@ -79,6 +81,7 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
     const refresh = () => {
       const nextStatus = region.routeDemoSnapshot();
       setStatus(nextStatus);
+      if (nextStatus.kind === "disabled") setVisiblePanel((panel) => panel === "status" ? "closed" : panel);
       setPaused(trainer.world.isPaused);
       const boss = region.primaryBoss;
       setSwordSolve(showSolves && nextStatus.kind === "disabled" && boss instanceof Zeke ? zekeRouteForSwords(boss.encounter.swords) : null);
@@ -93,6 +96,8 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
       const target = event.target;
       const keyboard = event instanceof KeyboardEvent;
       if (keyboard) {
+        if (event.key.toLowerCase() === "p") return;
+        if (target instanceof Element && target.closest("input, select, textarea, [contenteditable]")) return;
         if (["Tab", "Escape", "Enter", " "].includes(event.key) && target instanceof Element && target.closest("button, input, select, textarea, a, [contenteditable]")) return;
       } else {
         if (!(target instanceof HTMLCanvasElement)) return;
@@ -123,6 +128,7 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
     region.selectRouteScenario(id);
     trainer.reset();
     const url = new URL(window.location.href);
+    url.searchParams.set("phase", region.runOptions.phase);
     if (id === null) url.searchParams.delete("route");
     else url.searchParams.set("route", id);
     window.history.replaceState(null, "", url);
@@ -135,11 +141,6 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
     else region.playRoute();
     trainer.reset();
     setStatus(region.routeDemoSnapshot());
-    setPaused(trainer.world.isPaused);
-  };
-  const togglePause = () => {
-    if (trainer.world.isPaused) trainer.start();
-    else trainer.stop();
     setPaused(trainer.world.isPaused);
   };
   const closeStatus = () => {
@@ -157,23 +158,28 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
       {showPath && ready && status.kind !== "disabled" && <ZekeRouteOverlay trainer={trainer} scenario={status.scenario} />}
       {showSolves && ready && status.kind === "disabled" && swordSolve !== null && <ZekeRouteOverlay trainer={trainer} scenario={swordSolve} />}
       {status.kind !== "disabled" && visiblePanel === "status" && <section id="route_demo_status" aria-label="Scenario practice">
-        <div className="route_scenarios_heading"><strong>{status.scenario.label}</strong><button id="route_close" type="button" onClick={closeStatus} aria-label="Close scenario box">Close</button></div>
+        <div className="route_scenarios_heading">
+          <strong>{status.scenario.label}</strong>
+          <div className="route_window_actions">
+            <IconButton id="route_close" label="Minimize scenario" icon="minimize" disabled={false} onClick={closeStatus} />
+            <IconButton id="route_manual" label="Exit scenarios" icon="close" disabled={!ready} onClick={() => choose(null)} />
+          </div>
+        </div>
         <span role="status" data-kind={status.kind}>{paused ? "Paused · " : ""}{demoMessage(status)}</span>
         <span id="route_casts">{status.attackMode === "wind-surge" ? `Wind Surge casts: ${status.combat.filter((event) => event.cycle === status.cycle && event.kind === "cast").length}/${status.scenario.expectedCasts}` : "Scythe attacks"}{status.starOffset === null ? " · Opening attacks" : ` · Tick ${status.starOffset + 1}`}</span>
         <label className="route_path_toggle"><input id="route_wind_surge" type="checkbox" disabled={!ready} checked={status.attackMode === "wind-surge"} onChange={(event) => changeAttackMode(event.target.checked)} /> Use Wind Surge in automatic demo</label>
         <label className="route_path_toggle"><input id="route_show_path" type="checkbox" disabled={!ready} checked={showPath} onChange={(event) => setShowPath(event.target.checked)} /> Show path and numbered clicks</label>
-        <div>
-          <button id="route_play" type="button" disabled={!ready} onClick={play}>{status.kind === "playing" ? "Practice manually" : "Watch automatic demo"}</button>{" "}
-          <button id="route_pause" type="button" disabled={!ready || status.kind === "failed"} onClick={togglePause}>{paused ? "Resume" : "Pause"}</button>{" "}
-          <button id="route_replay" type="button" disabled={!ready} onClick={() => trainer.reset()}>Restart</button>{" "}
-          <button type="button" onClick={() => setVisiblePanel("scenarios")}>Change scenario</button>{" "}
-          <button id="route_manual" type="button" onClick={() => choose(null)}>Exit scenarios</button>
+        <div className="route_actions">
+          <button id="route_play" type="button" disabled={!ready} onClick={play}>{status.kind === "playing" ? "Practice manually" : "Watch automatic demo"}</button>
+          <PauseButton id="route_pause" trainer={trainer} region={region} disabled={!ready} />
+          <IconButton id="route_replay" label="Restart scenario" icon="restart" disabled={!ready} onClick={() => trainer.reset()} />
+          <button type="button" onClick={() => setVisiblePanel("scenarios")}>Change scenario</button>
         </div>
         <small>{status.attackMode === "wind-surge" ? `Harm staff: ${status.scenario.expectedCasts} Wind Surge ${status.scenario.expectedCasts === 1 ? "cast" : "casts"}, then scythe.` : "Scythe the boss whenever the route allows."} Keep attacking through the stun and return to start for the next sword cycle. At most one input per tick. Changing attack mode restarts the scenario.</small>
         <small>Charge can land through tick {ZEKE_RULES.swords.impactAfter.value + 1}, counting spawn as tick 1. Provisional timing.</small>
       </section>}
       <section ref={panel} id="route_scenarios" aria-labelledby="route_scenarios_title" hidden={!open}>
-        <div className="route_scenarios_heading"><h2 id="route_scenarios_title">Choose a scenario</h2><button type="button" onClick={() => setVisiblePanel(status.kind === "disabled" ? "closed" : "status")} aria-label="Close scenarios">Close</button></div>
+        <div className="route_scenarios_heading"><h2 id="route_scenarios_title">Choose a scenario</h2><IconButton id="route_scenarios_close" label="Close scenarios" icon="close" disabled={false} onClick={() => setVisiblePanel(status.kind === "disabled" ? "closed" : "status")} /></div>
         <p>Practice the same pattern each sword cycle. Show the path or choose Watch automatic demo to watch the simulator control the tank.</p>
         <div className="route_scenario_grid">
           {ZEKE_ROUTE_SCENARIOS.map((scenario) => <button type="button" key={scenario.id} data-scenario={scenario.id} aria-label={`Select ${scenario.label}`} aria-pressed={status.kind !== "disabled" && status.scenario.id === scenario.id} disabled={!ready} onClick={() => choose(scenario.id)}>

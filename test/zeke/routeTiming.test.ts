@@ -179,3 +179,36 @@ test.each(["scythe", "wind-surge"] as const)("Middle left dodges directly home i
     expect(boss.rows.flatMap((row) => row.events).some((event) => event.kind === "star-hit" || event.kind === "sword-hit-player" || (event.kind === "auto" && event.style === "magic"))).toBe(false);
   } finally { trainer.dispose(); }
 });
+
+const lowerRightCases = (["scythe", "wind-surge"] as const).flatMap((attackMode) => [1, 17, 99].map((seed) => ({ attackMode, seed })));
+
+test.each(lowerRightCases)("Lower right skips the extra lure and runs past the old stop in $attackMode with seed $seed", ({ attackMode, seed }) => {
+  Settings.readFromStorage();
+  Settings.set({ playsAudio: false, playsAreaAudio: false, inputDelay: 0 });
+  const region = new ZekeRegion({ seed, routeDemo: "cross-8-8", routeAutoplay: true, routeAttackMode: attackMode });
+  const trainer = new TrainerInstance(region, { readyTimer: 0 });
+  trainer.mount(document.createElement("canvas"), document.createElement("div"));
+  const boss = region.primaryBoss;
+  const player = region.players[0];
+  if (!(boss instanceof Zeke) || !(player instanceof ZekePlayer)) throw new Error("Missing native actors.");
+  try {
+    for (let at = 1; at <= 31; at++) {
+      region.world.tickWorld();
+      if (at === 20) expect(player.location).toEqual({ x: 6, y: 9 });
+      if (at === 24) {
+        expect(player.location).toEqual({ x: 7, y: 9 });
+        expect(player.destinationLocation).toEqual({ x: 9, y: 9 });
+      }
+      if (at === 25 && attackMode === "scythe") expect(player.location).toEqual({ x: 9, y: 9 });
+      if (at === 26) expect(player.location).toEqual({ x: 9, y: 9 });
+    }
+    const status = region.routeDemoSnapshot();
+    expect(status.kind).toBe("playing");
+    if (status.kind !== "playing") throw new Error("Lower right route stopped.");
+    expect(status.scenario.clicks).not.toContainEqual({ x: 7, y: 8 });
+    expect(status.scenario.clicks).not.toContainEqual({ x: 7, y: 9 });
+    expect(boss.rows.find((row) => row.tick === 31)?.events.filter((event) => event.kind === "sword-hit-boss")).toHaveLength(4);
+    expect(status.combat.filter((event) => event.kind === "cast").map((event) => event.tick)).toEqual(attackMode === "wind-surge" ? [17, 21, 25, 29] : []);
+    expect(boss.rows.flatMap((row) => row.events).some((event) => event.kind === "star-hit" || event.kind === "sword-hit-player" || (event.kind === "auto" && event.style === "magic"))).toBe(false);
+  } finally { trainer.dispose(); }
+});

@@ -12,7 +12,7 @@ const limits: readonly Readonly<{ id: ZekeRouteId; steps: number; approach: numb
   { id: "cross-8-5", steps: 15, approach: 1, homeAfterStun: 4, firstScythe: 31, firstSurgeScythe: 33 },
   { id: "cross-2-8", steps: 20, approach: 3, homeAfterStun: 3, firstScythe: 32, firstSurgeScythe: 33 },
   { id: "cross-5-8", steps: 18, approach: 1, homeAfterStun: 5, firstScythe: 32, firstSurgeScythe: 33 },
-  { id: "cross-8-8", steps: 24, approach: 2, homeAfterStun: 4, firstScythe: 32, firstSurgeScythe: 33 },
+  { id: "cross-8-8", steps: 22, approach: 2, homeAfterStun: 4, firstScythe: 32, firstSurgeScythe: 33 },
   { id: "parallel-x", steps: 20, approach: 2, homeAfterStun: 3, firstScythe: 33, firstSurgeScythe: 34 },
   { id: "parallel-y", steps: 13, approach: 1, homeAfterStun: 3, firstScythe: 32, firstSurgeScythe: 31 },
   { id: "two-rows", steps: 8, approach: 0, homeAfterStun: 2, firstScythe: 32, firstSurgeScythe: 32 },

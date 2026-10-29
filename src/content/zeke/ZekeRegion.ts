@@ -1,7 +1,7 @@
 import { CardinalDirection, InvisibleMovementBlocker, LineOfSight, Region, ScytheOfVitur, SoundCache, cacheSound } from "osrs-sdk";
 import type { Player } from "osrs-sdk";
-import { span, tick, tile } from "../../sim/brands";
-import type { Tick } from "../../sim/brands";
+import { seed, span, tick, tile } from "../../sim/brands";
+import type { Seed, Tick } from "../../sim/brands";
 import { dressZekePlayer } from "./loadout";
 import { ZEKE_PRESENTATION } from "./assets";
 import { ZEKE_RULES } from "./ZekeRules";
@@ -17,6 +17,7 @@ import type { ZekeRouteAttackMode, ZekeRouteDemoStatus } from "./ZekeRouteDemo";
 import type { ZekeRouteId } from "./ZekeRoutePlans";
 
 export type ZekeConfig = Readonly<{ seed?: number; invincible?: boolean; setup?: "melee" | "ranged"; phase?: "full" | "finale"; routeDemo?: ZekeRouteId; routeAutoplay?: boolean; routeAttackMode?: ZekeRouteAttackMode; skipCountdown?: boolean }>;
+export type ZekeRunOptions = Readonly<{ seed: Seed; setup: "melee" | "ranged"; phase: "full" | "finale"; invincible: boolean }>;
 type Mounted = Readonly<{ boss: Zeke; player: ZekePlayer }> | null;
 export type ZekeRunResult = Readonly<{ kind: "victory" | "death"; tick: Tick; invincible: boolean }>;
 type RunState =
@@ -31,17 +32,17 @@ export class ZekeRegion extends Region {
   private selectedRoute: ZekeRouteId | null;
   private routeAutoplay: boolean;
   private routeAttackMode: ZekeRouteAttackMode;
-  readonly seed: number;
-  invincible: boolean;
+  private currentOptions: ZekeRunOptions;
+  private readonly skipCountdown: boolean;
 
-  constructor(private readonly config: ZekeConfig = {}) {
+  constructor(config: ZekeConfig = {}) {
     super();
     this.selectedRoute = config.routeDemo ?? null;
     this.routeAutoplay = config.routeAutoplay ?? false;
     this.routeAttackMode = config.routeAttackMode ?? "scythe";
     this.routeDemo = new ZekeRouteDemo(this.selectedRoute, this.routeAutoplay, this.routeAttackMode);
-    this.seed = config.seed ?? 1;
-    this.invincible = config.invincible ?? false;
+    this.currentOptions = { seed: seed(config.seed ?? 1), setup: config.setup ?? "melee", phase: config.phase ?? "full", invincible: config.invincible ?? false };
+    this.skipCountdown = config.skipCountdown ?? false;
   }
 
   override getName(): string { return "Zeke"; }
@@ -54,8 +55,8 @@ export class ZekeRegion extends Region {
     this.routeDemo = new ZekeRouteDemo(this.selectedRoute, this.routeAutoplay, this.routeAttackMode);
     this.runState = { kind: "active" };
     const result = super.reset(false);
-    if (this.selectedRoute === null && this.config.phase === "finale" && this.mounted) this.mounted.boss.currentStats.hitpoint = Math.floor(this.mounted.boss.stats.hitpoint * ZEKE_RULES.enrage.threshold.value);
-    if (this.selectedRoute !== null || this.config.skipCountdown) this.world.getReadyTimer = 0;
+    if (this.selectedRoute === null && this.currentOptions.phase === "finale" && this.mounted) this.mounted.boss.currentStats.hitpoint = Math.floor(this.mounted.boss.stats.hitpoint * ZEKE_RULES.enrage.threshold.value);
+    if (this.selectedRoute !== null || this.skipCountdown) this.world.getReadyTimer = 0;
     if (startWorld) this.world.startTicking();
     return result;
   }
@@ -67,7 +68,7 @@ export class ZekeRegion extends Region {
       const at = tick(state.tick + 1);
       return inDodgeWindow(state, at, tile(location.x, location.y)) ? at : null;
     }, (participant) => this.opportunisticAttackTarget(participant));
-    dressZekePlayer(player, this.selectedRoute !== null && this.routeAutoplay ? "melee" : this.config.setup ?? "melee");
+    dressZekePlayer(player, this.selectedRoute !== null && this.routeAutoplay ? "melee" : this.currentOptions.setup);
     player.prayerController.findPrayerByName("Protect from Melee").toggle(player);
     player.prayerController.findPrayerByName("Piety").toggle(player);
     this.addPlayer(player);
@@ -96,6 +97,16 @@ export class ZekeRegion extends Region {
 
   get result(): ZekeRunResult | null {
     return this.runState.kind === "finished" ? this.runState.result : null;
+  }
+
+  get runOptions(): ZekeRunOptions { return this.currentOptions; }
+  get seed(): Seed { return this.currentOptions.seed; }
+  get invincible(): boolean { return this.currentOptions.invincible; }
+  set invincible(value: boolean) { this.currentOptions = { ...this.currentOptions, invincible: value }; }
+
+  configureRun(options: ZekeRunOptions): void {
+    this.currentOptions = options;
+    if (options.phase === "finale") this.selectedRoute = null;
   }
 
   override postTick(): void {
@@ -157,6 +168,7 @@ export class ZekeRegion extends Region {
   selectRouteScenario(id: ZekeRouteId | null, autoplay = false): void {
     this.selectedRoute = id;
     this.routeAutoplay = autoplay;
+    if (id !== null) this.currentOptions = { ...this.currentOptions, phase: "full" };
   }
 
   playRoute(): void { this.routeAutoplay = true; }
