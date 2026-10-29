@@ -2,10 +2,12 @@ import { span, tile } from "../../sim/brands";
 import type { TickSpan, Tile } from "../../sim/brands";
 import type { SwordPattern } from "./mechanics";
 import type { ZekeTimedRouteAction } from "./ZekeRouteActions";
+import { ZEKE_RULES } from "./ZekeRules";
 
 export type ZekeRouteId = "cross-2-2" | "cross-5-2" | "cross-8-2" | "cross-2-5" | "cross-8-5" | "cross-2-8" | "cross-5-8" | "cross-8-8" | "parallel-x" | "parallel-y" | "two-rows";
 export type ZekeRouteClick = Readonly<{ at: TickSpan; to: Tile }>;
-export type ZekeRouteScenario = Readonly<{ id: ZekeRouteId; label: string; pattern: SwordPattern; actions: readonly ZekeTimedRouteAction[]; openingActions: readonly ZekeTimedRouteAction[]; clicks: readonly ZekeRouteClick[]; trace: readonly Tile[]; expectedHits: number; expectedCasts: number }>;
+export type ZekeRouteReturnPlan = Readonly<{ lead: TickSpan; actions: readonly ZekeTimedRouteAction[] }>;
+export type ZekeRouteScenario = Readonly<{ id: ZekeRouteId; label: string; pattern: SwordPattern; actions: readonly ZekeTimedRouteAction[]; returnPlan: ZekeRouteReturnPlan; recoveryReturnPlan: ZekeRouteReturnPlan; openingActions: readonly ZekeTimedRouteAction[]; clicks: readonly ZekeRouteClick[]; trace: readonly Tile[]; expectedHits: number; expectedCasts: number }>;
 
 const openingActions: readonly ZekeTimedRouteAction[] = [
   { at: span(1), action: { kind: "attack-boss" } },
@@ -13,8 +15,42 @@ const openingActions: readonly ZekeTimedRouteAction[] = [
   { at: span(15), action: { kind: "equip", weapon: "harm" } },
 ];
 
-function scenario(data: Omit<ZekeRouteScenario, "clicks" | "openingActions">): ZekeRouteScenario {
-  return { ...data, openingActions, clicks: data.actions.flatMap(({ at, action }) => action.kind === "move" ? [{ at, to: action.to }] : []) };
+function scenario(data: Omit<ZekeRouteScenario, "clicks" | "openingActions" | "returnPlan" | "recoveryReturnPlan">): ZekeRouteScenario {
+  const lastCast = Math.max(...data.actions.filter(({ action }) => action.kind === "attack-sword").map(({ at }) => at));
+  const lastAttack = Math.max(...data.actions.filter(({ action }) => action.kind === "attack-boss").map(({ at }) => at));
+  const approach = data.actions.filter(({ at, action }) => action.kind === "move" && at > lastCast && at < lastAttack);
+  const home = data.actions.filter(({ at, action }) => action.kind === "move" && at > lastAttack);
+  const firstHome = home[0];
+  if (!firstHome) throw new Error(`Route ${data.id} has no return home.`);
+  const firstMove = ZEKE_RULES.autos.recoveryFirstAfterStun.value + 1;
+  const returnGap = firstHome.at - lastAttack;
+  const recoveryActions: readonly ZekeTimedRouteAction[] = [
+    ...approach.map(({ action }, index) => ({ at: span(firstMove + index), action })),
+    ...home.map(({ action }, index) => ({ at: span(firstMove + Math.max(0, approach.length - 1) + returnGap + index), action })),
+  ];
+  let returnActions: readonly ZekeTimedRouteAction[];
+  if (data.id === "cross-2-8") {
+    const lure = approach.at(-1);
+    if (!lure) throw new Error("Lower Left has no return approach.");
+    returnActions = [
+      { at: span(0), action: lure.action },
+      ...home.map(({ action }, index) => ({ at: span(firstMove + index), action })),
+    ];
+  } else if (data.id === "parallel-y") {
+    const [lure, turn] = approach.slice(-2);
+    if (!lure || !turn) throw new Error("Vertical sweep has no return approach.");
+    const secondAuto = ZEKE_RULES.autos.recoveryFirstAfterStun.value + ZEKE_RULES.autos.interval.value;
+    returnActions = [
+      { at: span(firstMove), action: lure.action },
+      { at: span(secondAuto - 1), action: turn.action },
+      { at: span(secondAuto + 1), action: firstHome.action },
+    ];
+  } else {
+    returnActions = recoveryActions;
+  }
+  const returnPlan = { lead: span(data.id === "cross-2-8" ? 1 : 0), actions: returnActions };
+  const recoveryReturnPlan = data.id === "cross-2-8" ? { lead: span(0), actions: recoveryActions } : returnPlan;
+  return { ...data, returnPlan, recoveryReturnPlan, openingActions, clicks: data.actions.flatMap(({ at, action }) => action.kind === "move" ? [{ at, to: action.to }] : []) };
 }
 
 export const ZEKE_ROUTE_SCENARIOS: readonly ZekeRouteScenario[] = [

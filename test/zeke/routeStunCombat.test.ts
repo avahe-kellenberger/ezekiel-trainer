@@ -4,10 +4,16 @@ import { ZekePlayer } from "../../src/content/zeke/ZekePlayer";
 import { ZekeRegion } from "../../src/content/zeke/ZekeRegion";
 import { WindSurge } from "../../src/content/zeke/WindSurge";
 
-test.each([false, true])("native autoplay follows the actual boss stun through completion with extra charge %s", (extraCharge) => {
+const recoveryCases = [false, true].flatMap((extraCharge) => [
+  { extraCharge, scenario: "cross-2-2", attackMode: "wind-surge" },
+  { extraCharge, scenario: "cross-2-8", attackMode: "wind-surge" },
+  { extraCharge, scenario: "cross-2-8", attackMode: "scythe" },
+] as const);
+
+test.each(recoveryCases)("$scenario in $attackMode follows the actual stun and return with extra charge $extraCharge", ({ extraCharge, scenario, attackMode }) => {
   Settings.readFromStorage();
   Settings.set({ playsAudio: false, playsAreaAudio: false, inputDelay: 0 });
-  const region = new ZekeRegion({ routeDemo: "cross-2-2", routeAutoplay: true, routeAttackMode: "wind-surge" });
+  const region = new ZekeRegion({ routeDemo: scenario, routeAutoplay: true, routeAttackMode: attackMode });
   const trainer = new TrainerInstance(region, { readyTimer: 0 });
   trainer.mount(document.createElement("canvas"), document.createElement("div"));
   const boss = region.primaryBoss;
@@ -28,6 +34,7 @@ test.each([false, true])("native autoplay follows the actual boss stun through c
         caster.setStats();
         caster.currentStats.magic = 99;
         new WindSurge().cast(caster, sword);
+        if (attackMode === "scythe") new WindSurge().cast(caster, sword);
       }
       region.world.tickWorld();
     }
@@ -40,11 +47,18 @@ test.each([false, true])("native autoplay follows the actual boss stun through c
     }
     const stunnedSwings = swings.filter((at) => at >= phase.started);
     expect(stunnedSwings.length).toBeGreaterThanOrEqual(2);
-    expect(stunnedSwings[0]).toBeLessThanOrEqual(phase.started + 2);
+    expect(stunnedSwings[0]).toBeLessThanOrEqual(phase.started + player.attackSpeed);
     expect(stunnedSwings.every((at, index) => index === 0 || at - (stunnedSwings[index - 1] ?? at) === 5)).toBe(true);
     expect(stunnedSwings.every((at) => at < phase.stunnedUntil)).toBe(true);
+    if (scenario === "cross-2-8") expect(stunnedSwings).toEqual(attackMode === "scythe" ? extraCharge ? [34, 39, 44] : [34, 39] : extraCharge ? [33, 38, 43] : [33, 38]);
+    expect(region.routeDemoSnapshot()).toMatchObject({ kind: "playing", stage: { kind: "returning", stunnedUntil: phase.stunnedUntil } });
+    while (region.routeDemoSnapshot().kind === "playing" && boss.encounterTick < phase.stunnedUntil + 11) region.world.tickWorld();
     expect(region.routeDemoSnapshot()).toMatchObject({ kind: "complete", control: "playing" });
-    expect(boss.encounterTick).toBe(phase.stunnedUntil);
+    expect(boss.encounterTick).toBeGreaterThan(phase.stunnedUntil);
+    expect(boss.encounterTick).toBeLessThan(phase.stunnedUntil + 12);
+    expect(swings.filter((at) => at >= phase.stunnedUntil)).toEqual([]);
+    expect(player.location).toEqual({ x: 4, y: 7 });
+    expect(boss.location).toEqual({ x: 4, y: 6 });
     expect(region.world.isPaused).toBe(true);
   } finally { observe.mockRestore(); trainer.dispose(); }
 });

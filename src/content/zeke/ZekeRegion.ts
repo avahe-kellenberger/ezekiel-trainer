@@ -125,7 +125,7 @@ export class ZekeRegion extends Region {
     }
     this.routeDemo.recordCombat(combat);
     const row = boss.rows[boss.rows.length - 1];
-    if (row && this.routeDemo.afterTick(row, boss.activeStepUnder)) {
+    if (row && this.routeDemo.afterTick(row, boss.activeStepUnder, tile(boss.location.x, boss.location.y), tile(player.location.x, player.location.y))) {
       boss.currentStats = { ...boss.stats };
       player.currentStats = { ...player.stats };
     }
@@ -193,7 +193,9 @@ export class ZekeRegion extends Region {
     this.players.forEach((player) => {
       if (player instanceof ZekePlayer) player.beginEncounterTick(at);
     });
-    let action: ZekeRouteAction | null = this.routeDemo.beforeTick(at, state);
+    const player = this.mounted.player;
+    const scytheReady = player.equipment.weapon instanceof ScytheOfVitur && player.attackDelay <= 1;
+    let action: ZekeRouteAction | null = this.routeDemo.beforeTick(at, state, scytheReady);
     const stunnedUntil = this.routeDemo.stunRecovery(state);
     if (stunnedUntil !== null) {
       const { player, boss } = this.mounted;

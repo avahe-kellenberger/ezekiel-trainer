@@ -57,8 +57,10 @@ describe("automatic demo controls", () => {
   test.each([
     { attackMode: "scythe", control: "playing", route: "cross-2-2" },
     { attackMode: "wind-surge", control: "playing", route: "cross-2-2" },
+    { attackMode: "scythe", control: "playing", route: "cross-2-8" },
+    { attackMode: "wind-surge", control: "playing", route: "cross-2-8" },
     { attackMode: "scythe", control: "practice", route: "cross-5-2" },
-  ] as const)("$attackMode $control restarts after its full stun through the trainer while its box is hidden", ({ attackMode, control, route }) => {
+  ] as const)("$route $attackMode $control finishes before the trainer restarts it while its box is hidden", ({ attackMode, control, route }) => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     Settings.readFromStorage();
@@ -88,7 +90,11 @@ describe("automatic demo controls", () => {
         }
       }
       expect(stunEnd).not.toBeNull();
-      expect(boss.encounterTick).toBe(stunEnd);
+      if (control === "playing") {
+        expect(boss.encounterTick).toBeGreaterThan(stunEnd ?? 0);
+        expect(region.snapshot()?.player.tile).toEqual({ x: 4, y: 7 });
+        expect(region.snapshot()?.boss.tile).toEqual({ x: 4, y: 6 });
+      } else expect(boss.encounterTick).toBe(stunEnd);
       expect(region.routeDemoSnapshot()).toMatchObject({ kind: "complete", attackMode });
       expect(trainer.world.isPaused).toBe(true);
       expect(trainer.getSnapshot().player).toBe(originalPlayer);
