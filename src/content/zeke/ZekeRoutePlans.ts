@@ -100,7 +100,7 @@ export const ZEKE_ROUTE_SCENARIOS: readonly ZekeRouteScenario[] = [
       { at: span(7), action: { kind: "move", to: tile(1, 7) } },
       { at: span(9), action: { kind: "attack-sword", index: 3 } },
       { at: span(13), action: { kind: "attack-sword", index: 0 } },
-      { at: span(14), action: { kind: "move", to: tile(5, 3) } },
+      { at: span(14), action: { kind: "move", to: tile(4, 7) } },
     ],
     returnPlan: { lead: span(0), actions: [
       { at: span(0), action: { kind: "move", to: tile(6, 5) } },
