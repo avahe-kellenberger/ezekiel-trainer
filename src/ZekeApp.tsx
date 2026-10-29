@@ -190,6 +190,7 @@ function PracticeControls({ trainer, region, options, ready }: ReturnType<typeof
         <p>Left-click to move or attack. Right-click for the game menu. Drag with the middle mouse button to rotate the camera and scroll to zoom.</p>
         <p>Use the game tabs for prayers, equipment, inventory and combat styles. You are the tank. Align Ezekiel's center with the sword lanes.</p>
         <p>Under Ezekiel, he tries a new escape direction each tick. Stay in melee range when he attacks; otherwise his magic hits the whole team.</p>
+        <p>Show solves draws a reference path and numbered movement clicks for each sword wave. Routes start at tile (4, 7) and do not adapt to your current position. You control movement and attacks.</p>
         <p>Encounter timing and damage remain under calibration.</p>
         <button type="button" onClick={() => setHelp(false)}>Close</button>
       </section>

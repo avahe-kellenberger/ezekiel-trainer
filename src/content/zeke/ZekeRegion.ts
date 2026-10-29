@@ -68,10 +68,8 @@ export class ZekeRegion extends Region {
       return inDodgeWindow(state, at, tile(location.x, location.y)) ? at : null;
     }, (participant) => this.opportunisticAttackTarget(participant));
     dressZekePlayer(player, this.selectedRoute !== null && this.routeAutoplay ? "melee" : this.config.setup ?? "melee");
-    if (this.selectedRoute !== null) {
-      player.prayerController.findPrayerByName("Protect from Melee").toggle(player);
-      player.prayerController.findPrayerByName("Piety").toggle(player);
-    }
+    player.prayerController.findPrayerByName("Protect from Melee").toggle(player);
+    player.prayerController.findPrayerByName("Piety").toggle(player);
     this.addPlayer(player);
     const boss = new Zeke(this, player, this.seed, this.routeDemo.pattern);
     this.addMob(boss);

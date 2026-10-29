@@ -1,6 +1,6 @@
 import { span, tile } from "../../sim/brands";
 import type { TickSpan, Tile } from "../../sim/brands";
-import type { SwordPattern } from "./mechanics";
+import type { SwordHazard, SwordPattern } from "./mechanics";
 import type { ZekeTimedRouteAction } from "./ZekeRouteActions";
 import { ZEKE_RULES } from "./ZekeRules";
 
@@ -250,4 +250,30 @@ export const ZEKE_ROUTE_SCENARIOS: readonly ZekeRouteScenario[] = [
 
 export function parseZekeRouteId(value: string | null): ZekeRouteId | null {
   return ZEKE_ROUTE_SCENARIOS.find((scenario) => scenario.id === value)?.id ?? null;
+}
+
+export function zekeRouteForSwords(swords: readonly SwordHazard[]): ZekeRouteScenario | null {
+  if (!swords.some((sword) => sword.status !== "spent")) return null;
+  return ZEKE_ROUTE_SCENARIOS.find((candidate) => {
+    const pattern = candidate.pattern;
+    switch (pattern.kind) {
+      case "cross":
+        return swords.length === ZEKE_RULES.swords.crossCount.value
+          && swords.some((sword) => sword.axis === "x")
+          && swords.some((sword) => sword.axis === "y")
+          && swords.every((sword) => sword.lane === (sword.axis === "x" ? pattern.row : pattern.column));
+      case "parallel":
+        return swords.length === ZEKE_RULES.swords.parallelCount.value
+          && swords.every((sword) => sword.axis === pattern.axis && sword.direction === pattern.direction)
+          && ZEKE_RULES.swords.lanes.value.every((lane) => swords.some((sword) => sword.lane === lane));
+      case "two-rows":
+        return swords.length === ZEKE_RULES.swords.crossCount.value
+          && swords.every((sword) => sword.axis === "x" && ZEKE_RULES.swords.twoRows.value.includes(sword.lane))
+          && ZEKE_RULES.swords.twoRows.value.every((lane) => swords.some((sword) => sword.lane === lane));
+      default: {
+        const unhandled: never = pattern;
+        return unhandled;
+      }
+    }
+  }) ?? null;
 }

@@ -308,13 +308,16 @@ describe("native route practice", () => {
     } finally { drill.trainer.dispose(); }
   });
 
-  test("normal practice leaves routes and protection prayer disabled", () => {
+  test("normal practice keeps routes disabled and starts with Protect from Melee and Piety, including after restart", () => {
     const drill = practice();
     try {
       drill.tickTo(18);
       expect(drill.region.routeDemoSnapshot()).toEqual({ kind: "disabled", attackMode: "scythe" });
       expect(drill.actors().player.location).toEqual({ x: 4, y: 7 });
-      expect(drill.actors().player.prayerController.matchFeature("melee")).toBeFalsy();
+      expect(drill.actors().player.prayerController.activePrayers().map((prayer) => prayer.name)).toEqual(["Protect from Melee", "Piety"]);
+      drill.trainer.reset();
+      drill.tickTo(1);
+      expect(drill.actors().player.prayerController.activePrayers().map((prayer) => prayer.name)).toEqual(["Protect from Melee", "Piety"]);
     } finally { drill.trainer.dispose(); }
   });
 

@@ -1,7 +1,8 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Settings, TrainerInstance } from "osrs-sdk";
+import { Settings, TileMarker, TrainerInstance } from "osrs-sdk";
+import { TrainerProvider } from "osrs-sdk-react";
 import { ZekeRegion } from "../../src/content/zeke/ZekeRegion";
 import { ZekeRoutePicker } from "../../src/ZekeRoutePicker";
 import { Zeke } from "../../src/content/zeke/Zeke";
@@ -49,8 +50,73 @@ describe("watchable route scenario picker", () => {
     try {
       expect(view.container.querySelectorAll("button[data-scenario][disabled]")).toHaveLength(11);
       expect(view.container.querySelector("#route_picker[disabled]")).not.toBeNull();
+      expect(view.container.querySelector("#show_solves[disabled]")).not.toBeNull();
     } finally { view.dispose(); }
   });
+});
+
+test("live solves follow regular sword waves, toggle off, and reset without taking control", () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  Settings.readFromStorage();
+  Settings.set({ playsAudio: false, playsAreaAudio: false });
+  const region = new ZekeRegion({ seed: 1, invincible: true, skipCountdown: true });
+  const trainer = new TrainerInstance(region);
+  const startLoop = vi.spyOn(trainer.world, "startLoop").mockImplementation(() => {});
+  const player = trainer.mount(document.createElement("canvas"), document.createElement("div"));
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const markers = () => region.entities.filter((entity) => entity instanceof TileMarker);
+  const poll = () => act(() => vi.advanceTimersByTime(100));
+  const toggle = () => {
+    const button = container.querySelector("#show_solves");
+    if (!(button instanceof HTMLButtonElement)) throw new Error("Missing Show solves toggle.");
+    act(() => button.click());
+  };
+  try {
+    act(() => root.render(React.createElement(TrainerProvider, { trainer, children: React.createElement(ZekeRoutePicker, { region, trainer, ready: true }) })));
+    expect(container.querySelector("#show_solves")?.getAttribute("aria-pressed")).toBe("false");
+    toggle();
+    expect(markers()).toHaveLength(0);
+    const boss = region.primaryBoss;
+    if (!(boss instanceof Zeke)) throw new Error("Missing native boss.");
+    for (let at = 0; at < 100 && boss.encounter.swords.length === 0; at++) region.world.tickWorld();
+    poll();
+    expect(markers().length).toBeGreaterThan(0);
+    expect(trainer.getSnapshot().player).toBe(player);
+    expect(region.routeDemoSnapshot().kind).toBe("disabled");
+    expect(player.aggro).toBeNull();
+    const firstMarkers = markers();
+    poll();
+    expect(markers()).toEqual(firstMarkers);
+    toggle();
+    expect(markers()).toHaveLength(0);
+    toggle();
+    expect(markers().length).toBeGreaterThan(0);
+    act(() => { trainer.reset(); });
+    poll();
+    expect(markers()).toHaveLength(0);
+    expect(container.querySelector("#show_solves")?.getAttribute("aria-pressed")).toBe("true");
+    const resetBoss = region.primaryBoss;
+    if (!(resetBoss instanceof Zeke)) throw new Error("Missing reset boss.");
+    for (let at = 0; at < 100 && resetBoss.encounter.swords.length === 0; at++) region.world.tickWorld();
+    poll();
+    expect(markers().length).toBeGreaterThan(0);
+    for (let at = 0; at < 100 && resetBoss.encounter.swords.some((sword) => sword.status !== "spent"); at++) region.world.tickWorld();
+    poll();
+    expect(markers()).toHaveLength(0);
+    for (let at = 0; at < 100 && resetBoss.encounter.swords.every((sword) => sword.status === "spent"); at++) region.world.tickWorld();
+    poll();
+    expect(markers().length).toBeGreaterThan(0);
+    act(() => root.unmount());
+    expect(markers()).toHaveLength(0);
+  } finally {
+    act(() => root.unmount());
+    trainer.dispose();
+    startLoop.mockRestore();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  }
 });
 
 describe("automatic demo controls", () => {

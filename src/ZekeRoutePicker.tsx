@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { ZekeRouteOverlay } from "./ZekeRouteOverlay";
 import type { TrainerInstance } from "osrs-sdk";
 import type { ZekeRegion } from "./content/zeke/ZekeRegion";
-import { ZEKE_ROUTE_SCENARIOS } from "./content/zeke/ZekeRoutePlans";
+import { ZEKE_ROUTE_SCENARIOS, zekeRouteForSwords } from "./content/zeke/ZekeRoutePlans";
+import { Zeke } from "./content/zeke/Zeke";
 import type { ZekeRouteId, ZekeRouteScenario } from "./content/zeke/ZekeRoutePlans";
 import type { ZekeRouteDemoStatus } from "./content/zeke/ZekeRouteDemo";
 import type { SwordPattern } from "./content/zeke/mechanics";
@@ -68,17 +69,24 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
   const [visiblePanel, setVisiblePanel] = useState<"closed" | "scenarios" | "status">(() => region.routeDemoSnapshot().kind === "disabled" ? "closed" : "status");
   const open = visiblePanel === "scenarios";
   const [showPath, setShowPath] = useState(false);
+  const [showSolves, setShowSolves] = useState(false);
+  const [swordSolve, setSwordSolve] = useState<ZekeRouteScenario | null>(null);
   const [paused, setPaused] = useState(trainer.world.isPaused);
   const [status, setStatus] = useState(() => region.routeDemoSnapshot());
   const panel = useRef<HTMLElement>(null);
   const pickerButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    const poll = window.setInterval(() => {
-      setStatus(region.routeDemoSnapshot());
+    const refresh = () => {
+      const nextStatus = region.routeDemoSnapshot();
+      setStatus(nextStatus);
       setPaused(trainer.world.isPaused);
-    }, 100);
+      const boss = region.primaryBoss;
+      setSwordSolve(showSolves && nextStatus.kind === "disabled" && boss instanceof Zeke ? zekeRouteForSwords(boss.encounter.swords) : null);
+    };
+    refresh();
+    const poll = window.setInterval(refresh, 100);
     return () => window.clearInterval(poll);
-  }, [region, trainer]);
+  }, [region, trainer, showSolves]);
   useEffect(() => {
     const guard = (event: Event) => {
       if (region.routeDemoSnapshot().kind !== "playing") return;
@@ -147,6 +155,7 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
   return (
     <>
       {showPath && ready && status.kind !== "disabled" && <ZekeRouteOverlay trainer={trainer} scenario={status.scenario} />}
+      {showSolves && ready && status.kind === "disabled" && swordSolve !== null && <ZekeRouteOverlay trainer={trainer} scenario={swordSolve} />}
       {status.kind !== "disabled" && visiblePanel === "status" && <section id="route_demo_status" aria-label="Scenario practice">
         <div className="route_scenarios_heading"><strong>{status.scenario.label}</strong><button id="route_close" type="button" onClick={closeStatus} aria-label="Close scenario box">Close</button></div>
         <span role="status" data-kind={status.kind}>{paused ? "Paused · " : ""}{demoMessage(status)}</span>
@@ -175,6 +184,7 @@ export function ZekeRoutePicker({ region, trainer, ready }: Readonly<{ region: Z
         <p className="route_legend"><span /> Red tiles show sword paths. Sweeps cover the lanes in numbered order.</p>
       </section>
       <button ref={pickerButton} id="route_picker" type="button" disabled={!ready} aria-controls={status.kind === "disabled" || open ? "route_scenarios" : "route_demo_status"} aria-expanded={visiblePanel !== "closed"} onClick={() => setVisiblePanel(visiblePanel !== "closed" ? "closed" : status.kind === "disabled" ? "scenarios" : "status")}>{status.kind === "disabled" ? "Choose sword scenario" : visiblePanel === "closed" ? "Show scenario" : "Hide scenario"}</button>
+      {status.kind === "disabled" && <button id="show_solves" type="button" disabled={!ready} aria-pressed={showSolves} title="Show reference paths and numbered clicks when swords appear" onClick={() => setShowSolves(!showSolves)}>Show solves</button>}
     </>
   );
 }
