@@ -51,7 +51,7 @@ function practice() {
   return { region, player, boss, equip, resolve, tickTo, dispose: () => trainer.dispose() };
 }
 
-describe("melee accuracy while the boss is downed", () => {
+describe("melee damage and accuracy while the boss is downed", () => {
   test("all three native scythe hits ignore accuracy rolls while the boss is downed", () => {
     const drill = practice();
     const random = vi.spyOn(Random, "get").mockReturnValue(0.999999);
@@ -73,42 +73,80 @@ describe("melee accuracy while the boss is downed", () => {
     } finally { random.mockRestore(); drill.dispose(); }
   });
 
-  test("guaranteed accuracy retains ordinary random damage with accurate zero rolls raised to one", () => {
+  test.each([
+    { roll: 0, expected: [5, 2, 1] },
+    { roll: 0.5, expected: [32, 16, 8] },
+    { roll: 0.999999, expected: [59, 29, 14] },
+  ])("each scythe hit rolls from its own floored ten-percent minimum at $roll", ({ roll, expected }) => {
     const drill = practice();
-    const random = vi.spyOn(Random, "get").mockReturnValue(0.999999);
-    try {
-      const scythe = drill.equip(new ZekeScythe());
-      scythe.attack(drill.player, drill.boss, {});
-      const high = drill.boss.incomingProjectiles.splice(0).map((hit) => hit.damage);
-      random.mockReturnValue(0.25);
-      scythe.attack(drill.player, drill.boss, {});
-      const low = drill.boss.incomingProjectiles.splice(0).map((hit) => hit.damage);
-      expect(low).toHaveLength(3);
-      low.forEach((damage, index) => {
-        expect(damage).toBeGreaterThan(0);
-        expect(damage).toBeLessThan(high[index]);
-      });
-      random.mockReturnValue(0);
-      scythe.attack(drill.player, drill.boss, {});
-      expect(drill.boss.incomingProjectiles.map((hit) => hit.damage)).toEqual([1, 1, 1]);
-    } finally { random.mockRestore(); drill.dispose(); }
-  });
-
-
-  test("a zero damage roll on the third accurate scythe hit deals one", () => {
-    const drill = practice();
-    const random = vi.spyOn(Random, "get").mockReturnValueOnce(0.8).mockReturnValueOnce(0.6).mockReturnValue(0);
+    const random = vi.spyOn(Random, "get").mockReturnValue(roll);
+    const scythe = drill.equip(new ZekeScythe());
+    const maximum = vi.spyOn(scythe, "_maxHit").mockImplementation((_from, _to, bonuses) => Math.floor(59 * (bonuses.overallMultiplier ?? 1)));
     try {
       const before = drill.boss.currentStats.hitpoint;
-      drill.equip(new ZekeScythe()).attack(drill.player, drill.boss, {});
-      const hits = drill.boss.incomingProjectiles.map((hit) => hit.damage);
-      expect(hits).toHaveLength(3);
-      expect(hits[0]).toBeGreaterThan(1);
-      expect(hits[1]).toBeGreaterThan(1);
-      expect(hits[2]).toBe(1);
+      scythe.attack(drill.player, drill.boss, {});
+      expect(drill.boss.incomingProjectiles.map((hit) => hit.damage)).toEqual(expected);
       drill.resolve();
-      expect(drill.boss.currentStats.hitpoint).toBe(before - hits.reduce((sum, damage) => sum + damage, 0));
-    } finally { random.mockRestore(); drill.dispose(); }
+      expect(drill.boss.currentStats.hitpoint).toBe(before - expected.reduce((sum, damage) => sum + damage, 0));
+    } finally { maximum.mockRestore(); random.mockRestore(); drill.dispose(); }
+  });
+
+  test("scythe hits with a floored stun minimum of zero still deal one on an accurate zero roll", () => {
+    const drill = practice();
+    const random = vi.spyOn(Random, "get").mockReturnValue(0);
+    const scythe = drill.equip(new ZekeScythe());
+    const maximum = vi.spyOn(scythe, "_maxHit").mockImplementation((_from, _to, bonuses) => Math.floor(9 * (bonuses.overallMultiplier ?? 1)));
+    try {
+      scythe.attack(drill.player, drill.boss, {});
+      expect(drill.boss.incomingProjectiles.map((hit) => hit.damage)).toEqual([1, 1, 1]);
+    } finally { maximum.mockRestore(); random.mockRestore(); drill.dispose(); }
+  });
+
+  test.each([{ name: "maul", WeaponClass: ElderMaul }, { name: "kisten", WeaponClass: CrimsonKisten }])("ordinary $name attacks also use the stun minimum", ({ WeaponClass }) => {
+    const drill = practice();
+    const random = vi.spyOn(Random, "get").mockReturnValue(0);
+    const weapon = drill.equip(new WeaponClass());
+    const maximum = vi.spyOn(weapon, "_maxHit").mockReturnValue(59);
+    try {
+      const before = drill.boss.currentStats.hitpoint;
+      weapon.attack(drill.player, drill.boss, {});
+      expect(drill.boss.incomingProjectiles.map((hit) => hit.damage)).toEqual([5]);
+      drill.resolve();
+      expect(drill.boss.currentStats.hitpoint).toBe(before - 5);
+    } finally { maximum.mockRestore(); random.mockRestore(); drill.dispose(); }
+  });
+
+  test.each([
+    { roll: 0, expected: 8 },
+    { roll: 0.5, expected: 46 },
+    { roll: 0.999999, expected: 83 },
+  ])("Kisten special replaces its native minimum with ten percent of its special maximum at $roll", ({ roll, expected }) => {
+    const drill = practice();
+    const random = vi.spyOn(Random, "get").mockReturnValue(roll);
+    const weapon = drill.equip(new CrimsonKisten());
+    const maximum = vi.spyOn(weapon, "_maxHit").mockReturnValue(49);
+    try {
+      const before = drill.boss.currentStats.hitpoint;
+      weapon.specialAttack(drill.player, drill.boss, {});
+      expect(drill.boss.incomingProjectiles.map((hit) => hit.damage)).toEqual([expected]);
+      drill.resolve();
+      expect(drill.boss.currentStats.hitpoint).toBe(before - expected);
+    } finally { maximum.mockRestore(); random.mockRestore(); drill.dispose(); }
+  });
+
+  test("the first standup tick restores Kisten's native special minimum", () => {
+    const drill = practice();
+    const random = vi.spyOn(Random, "get").mockReturnValue(0);
+    const weapon = drill.equip(new CrimsonKisten());
+    const maximum = vi.spyOn(weapon, "_maxHit").mockReturnValue(49);
+    try {
+      drill.tickTo(18);
+      const before = drill.boss.currentStats.hitpoint;
+      weapon.specialAttack(drill.player, drill.boss, {});
+      expect(drill.boss.incomingProjectiles.map((hit) => hit.damage)).toEqual([63]);
+      drill.resolve();
+      expect(drill.boss.currentStats.hitpoint).toBe(before - 63);
+    } finally { maximum.mockRestore(); random.mockRestore(); drill.dispose(); }
   });
 
   test("ordinary accurate scythe zero rolls also deal one outside the downed phase", () => {

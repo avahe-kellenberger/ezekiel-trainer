@@ -79,10 +79,16 @@ export class Zeke extends Mob {
   override get deathAnimationId(): number { return this.encounter?.phase.kind === "enrage" || this.finaleBlades.length > 0 ? ZEKE_PRESENTATION.finaleDeath : ZEKE_PRESENTATION.death; }
   override create3dModel(): Model { return new ZekeModel(this); }
 
+  get stunnedMeleeMinimumFraction(): number | null {
+    const phase = this.encounter.phase;
+    return phase.kind === "recovery" && phase.recovery === "weaken" && this.encounter.tick < phase.stunnedUntil - ZEKE_RULES.swords.wakeBeforeStunEnds.value
+      ? ZEKE_RULES.swords.stunnedMeleeMinimumFraction.value
+      : null;
+  }
+
   override incomingAttackRollModifiers(attack: IncomingAttackRoll): IncomingAttackRollModifiers {
     const inherited = super.incomingAttackRollModifiers(attack);
-    const phase = this.encounter.phase;
-    return attack.weapon instanceof MeleeWeapon && phase.kind === "recovery" && phase.recovery === "weaken" && this.encounter.tick < phase.stunnedUntil - ZEKE_RULES.swords.wakeBeforeStunEnds.value
+    return attack.weapon instanceof MeleeWeapon && this.stunnedMeleeMinimumFraction !== null
       ? { ...inherited, guaranteedHit: ZEKE_RULES.swords.stunnedMeleeAccuracy.value === 1 }
       : inherited;
   }

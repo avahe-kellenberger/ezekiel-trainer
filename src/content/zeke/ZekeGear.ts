@@ -2,6 +2,7 @@ import { AttackStyle, AttackStylesController, AttackStyleTypes, Chest, Helmet, I
 import type { AttackBonuses, ProjectileOptions, UnitEquipment } from "osrs-sdk";
 import { ZEKE_GEAR, ZEKE_SCYTHE_COMBAT } from "./ZekeGearData";
 import { itemIconFile } from "../../servedAssets";
+import { Zeke } from "./Zeke";
 
 declare module "osrs-sdk/lib/src/sdk/ItemName" {
   enum ItemName {
@@ -65,8 +66,21 @@ function crushBonuses(equipment: UnitEquipment, bonuses: AttackBonuses): AttackB
   return { ...bonuses, attackStyle: "crush", gearMeleeMultiplier: (bonuses.gearMeleeMultiplier ?? 1) * boost };
 }
 
+function stunnedMeleeDamage(target: Unit, maximum: number, maximumDamage: boolean): number | null {
+  const fraction = target instanceof Zeke ? target.stunnedMeleeMinimumFraction : null;
+  if (fraction === null) return null;
+  const minimum = Math.floor(fraction * maximum);
+  return maximumDamage ? maximum : minimum + Math.floor(Random.get() * (maximum - minimum + 1));
+}
+
 export class ZekeScythe extends ScytheOfVitur {
   override _calculateHitDamage(from: Unit, to: Unit, bonuses: AttackBonuses): number {
+    const modifiers = to.incomingAttackRollModifiers({ attacker: from, weapon: this, bonuses });
+    const damage = stunnedMeleeDamage(to, this._maxHit(from, to, bonuses), modifiers.maxDamage === true);
+    if (damage !== null) {
+      this.lastHitHit = true;
+      return Math.max(ZEKE_SCYTHE_COMBAT.minimumAccurateDamage, damage);
+    }
     return Math.max(ZEKE_SCYTHE_COMBAT.minimumAccurateDamage, super._calculateHitDamage(from, to, bonuses));
   }
 
@@ -110,6 +124,13 @@ export class ElderMaul extends MeleeWeapon {
   override _attackRoll(from: Unit, to: Unit, bonuses: AttackBonuses): number {
     return Math.floor(super._attackRoll(from, to, bonuses) * (bonuses.isSpecialAttack ? ZEKE_GEAR.elderMaul.specialAccuracy : 1));
   }
+  override _calculateHitDamage(from: Unit, to: Unit, bonuses: AttackBonuses): number {
+    const modifiers = to.incomingAttackRollModifiers({ attacker: from, weapon: this, bonuses });
+    const damage = stunnedMeleeDamage(to, this._maxHit(from, to, bonuses), modifiers.maxDamage === true);
+    if (damage === null) return super._calculateHitDamage(from, to, bonuses);
+    this.lastHitHit = true;
+    return damage;
+  }
   override specialAttack(from: Unit, to: Unit, bonuses: AttackBonuses = {}, options: ProjectileOptions = {}): boolean {
     const attacked = this.attack(from, to, { ...bonuses, isSpecialAttack: true }, options);
     if (attacked) from.addSpotAnim({ id: ZEKE_GEAR.elderMaul.specialGlow });
@@ -147,6 +168,13 @@ export class CrimsonKisten extends MeleeWeapon {
     if (attacked) from.addSpotAnim({ id: ZEKE_GEAR.crimsonKisten.specialGlow });
     return attacked;
   }
+  override _calculateHitDamage(from: Unit, to: Unit, bonuses: AttackBonuses): number {
+    const modifiers = to.incomingAttackRollModifiers({ attacker: from, weapon: this, bonuses });
+    const damage = stunnedMeleeDamage(to, this._maxHit(from, to, bonuses), modifiers.maxDamage === true);
+    if (damage === null) return super._calculateHitDamage(from, to, bonuses);
+    this.lastHitHit = true;
+    return damage;
+  }
   override _rollAttack(from: Unit, to: Unit, bonuses: AttackBonuses): number {
     if (!bonuses.isSpecialAttack) return super._rollAttack(from, to, bonuses);
     const spec = ZEKE_GEAR.crimsonKisten;
@@ -159,6 +187,8 @@ export class CrimsonKisten extends MeleeWeapon {
     const max = this._maxHit(from, to, bonuses);
     const minimum = Math.floor(max * (spec.minimumHit + extra));
     const maximum = Math.floor(max * (spec.maximumHit + extra));
+    const stunnedDamage = stunnedMeleeDamage(to, maximum, modifiers.maxDamage === true);
+    if (stunnedDamage !== null) return stunnedDamage;
     return modifiers.maxDamage ? maximum : minimum + Math.floor(Random.get() * (maximum - minimum + 1));
   }
 }
